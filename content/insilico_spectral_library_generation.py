@@ -15,7 +15,7 @@ st.title("🔬 In-Silico Predicted Spectral Library")
 st.markdown(
     """
 Generate **in-silico predicted spectral libraries** using
-[EasyPQP](https://github.com/singjc/easypqp-rs).
+[EasyPQP](https://github.com/grosenberger/easypqp).
 Configure the parameters below and run the library generation.
 """
 )
@@ -25,10 +25,9 @@ with st.expander("📖 About EasyPQP In-Silico Library Generation"):
         EasyPQP generates predicted spectral libraries by:
         - **Digesting** protein FASTA files with configurable enzyme parameters
         - **Predicting** MS2 fragment intensities, retention time, and ion mobility using deep-learning models
-        - **Outputting** library files compatible with PyProphet, DIA-NN, Spectronaut, etc.
 
         For more information see the
-        [EasyPQP documentation](https://github.com/singjc/easypqp-rs?tab=readme-ov-file#configuration-reference).
+        [EasyPQP documentation](https://github.com/grosenberger/easypqp?tab=readme-ov-file#generating-an-in-silico-library).
         """
     )
 
