@@ -31,7 +31,7 @@ st.subheader("📥 Input Library File")
 
 # Scan for existing EasyPQP results
 default_workspace = Path(st.session_state.get("workspace", ".")).resolve()
-easypqp_results_dir = Path(default_workspace, "insilico-spectral-library-generation", "results", "easypqp").resolve()
+easypqp_results_dir = Path(default_workspace, "easypqp-insilico", "results", "insilico").resolve()
 existing_libraries = []
 if easypqp_results_dir.exists():
     existing_libraries = sorted([f.name for f in easypqp_results_dir.glob("*") if f.is_file()])
