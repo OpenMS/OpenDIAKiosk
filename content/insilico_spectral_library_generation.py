@@ -707,6 +707,56 @@ if easypqp_workspace.exists() and results_dir.exists():
                             )
                 except Exception as e:
                     st.warning(f"⚠️ Could not access {parquet_file.name}: {e}")
+        
+        # === CLEAR RESULTS BUTTON ===
+        st.markdown("---")
+        st.subheader("🗑️ Clear Results")
+        
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("🗑️ Clear Results", key="clear_results_btn", use_container_width=True):
+                st.session_state.clear_results_confirm = True
+        
+        # Show confirmation modal if user clicked clear
+        if st.session_state.get("clear_results_confirm", False):
+            st.markdown("---")
+            st.warning("⚠️ **WARNING: This will permanently delete the following files:**")
+            
+            # List all files that will be deleted
+            all_files = tsv_files + html_files + report_files
+            for file in all_files:
+                st.write(f"  • `{file.name}` ({file.stat().st_size / (1024 * 1024):.1f} MB)")
+            
+            st.markdown("")
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col2:
+                if st.button("❌ Cancel", key="cancel_clear", use_container_width=True):
+                    st.session_state.clear_results_confirm = False
+                    st.rerun()
+            
+            with col3:
+                if st.button("🗑️ Delete", key="confirm_clear", type="secondary", use_container_width=True):
+                    try:
+                        deleted_count = 0
+                        for file in all_files:
+                            try:
+                                file.unlink()
+                                deleted_count += 1
+                            except Exception as e:
+                                st.warning(f"Could not delete {file.name}: {e}")
+                        
+                        # Clear confirmation state
+                        st.session_state.clear_results_confirm = False
+                        
+                        # Show success message
+                        st.success(f"✅ Successfully deleted {deleted_count} file(s)!")
+                        st.info("The page will refresh to show the updated results section.")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error clearing results: {e}")
     else:
         st.info(
             "⏳ Processing in progress... Refresh the page to check for newly generated files."
