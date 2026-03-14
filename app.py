@@ -19,14 +19,19 @@ if __name__ == "__main__":
         ],
         "Spectral Library Generation": [
             st.Page(
-                Path("content", "spectral_library_generation.py"),
-                title="Empirical Library",
-                icon="📚",
-            ),
-            st.Page(
                 Path("content", "insilico_spectral_library_generation.py"),
                 title="Predicted Library",
                 icon="📚",
+            ),
+            st.Page(
+                Path("content", "openswathassay_generation.py"),
+                title="Filter and Optimize Library",
+                icon="🔧",
+            ),
+            st.Page(
+                Path("content", "openswathdecoy_generation.py"),
+                title="Generate/Append Decoys",
+                icon="🎭",
             ),
         ],
         "pyOpenMS Toolbox": [
