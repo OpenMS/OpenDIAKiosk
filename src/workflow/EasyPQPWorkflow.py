@@ -64,9 +64,7 @@ class EasyPQPWorkflow(WorkflowManager):
         easypqp_cmd = shutil.which("easypqp")
         if not easypqp_cmd:
             self.logger.log("❌ ERROR: 'easypqp' command not found in PATH")
-            self.logger.log(
-                f"Searched in PATH. Current sys.prefix: {sys.prefix}"
-            )
+            self.logger.log(f"Searched in PATH. Current sys.prefix: {sys.prefix}")
             return False
 
         self.logger.log(f"Found easypqp at: {easypqp_cmd}")

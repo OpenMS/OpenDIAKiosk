@@ -163,13 +163,19 @@ class CommandExecutor:
         # Buffer for stderr - will only be written to minimal log if process fails
         stderr_buffer: list[str] = []
 
-        # Real-time output capture
-        self._stream_output(process, stderr_buffer)
+        # Real-time output capture (returns the threads so we can join them)
+        stdout_thread, stderr_thread = self._stream_output(process, stderr_buffer)
 
         # Wait for process completion
         print(f"[DEBUG] Waiting for process to complete...")
         process.wait()
         print(f"[DEBUG] Process completed with return code: {process.returncode}")
+
+        # Wait for output threads to finish reading any final buffered data
+        print(f"[DEBUG] Waiting for output threads to finish...")
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        print(f"[DEBUG] Output threads finished")
 
         # Cleanup PID file
         pid_file_path.unlink()
@@ -200,7 +206,7 @@ class CommandExecutor:
 
     def _stream_output(
         self, process: subprocess.Popen, stderr_buffer: list[str]
-    ) -> None:
+    ) -> tuple:
         """
         Streams stdout and stderr from a running process in real-time to the logger.
         This method runs in the workflow process, not the GUI thread, so it's safe to block.
@@ -211,6 +217,9 @@ class CommandExecutor:
         Args:
             process: The subprocess.Popen object to stream from
             stderr_buffer: A list to accumulate stderr lines for conditional logging
+            
+        Returns:
+            Tuple of (stdout_thread, stderr_thread) for joining later
         """
 
         def read_stdout():
@@ -218,11 +227,12 @@ class CommandExecutor:
             try:
                 for line in iter(process.stdout.readline, ""):
                     if line:
-                        self.logger.log(line.rstrip(), 2)
+                        # Log subprocess output at level 1 (visible) instead of level 2 (detailed)
+                        self.logger.log(line.rstrip(), 1)
                     if process.poll() is not None:
                         break
             except Exception as e:
-                self.logger.log(f"Error reading stdout: {e}", 2)
+                self.logger.log(f"Error reading stdout: {e}", 1)
             finally:
                 process.stdout.close()
 
@@ -233,12 +243,12 @@ class CommandExecutor:
                     if line:
                         stderr_line = line.rstrip()
                         stderr_buffer.append(stderr_line)
-                        # Log to detailed log only during execution
-                        self.logger.log(f"STDERR: {stderr_line}", 2)
+                        # Log to process output log (level 1) so it's visible
+                        self.logger.log(f"{stderr_line}", 1)
                     if process.poll() is not None:
                         break
             except Exception as e:
-                self.logger.log(f"Error reading stderr: {e}", 2)
+                self.logger.log(f"Error reading stderr: {e}", 1)
             finally:
                 process.stderr.close()
 
@@ -248,6 +258,8 @@ class CommandExecutor:
 
         stdout_thread.start()
         stderr_thread.start()
+        
+        return stdout_thread, stderr_thread
 
         # Wait for both threads to complete
         stdout_thread.join()
