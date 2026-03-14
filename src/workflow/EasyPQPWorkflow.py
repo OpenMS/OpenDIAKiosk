@@ -1,4 +1,5 @@
 import sys
+import shutil
 import streamlit as st
 from pathlib import Path
 from .WorkflowManager import WorkflowManager
@@ -49,42 +50,83 @@ class EasyPQPWorkflow(WorkflowManager):
         self.ui.input_widget("parquet_output", False, "Parquet Output")
 
     def execution(self) -> bool:
+        """Execute EasyPQP insilico-library generation.
+
+        Preferred method: uses config file if available
+        Fallback: builds command from individual parameters
+        """
+        self.logger.log("=" * 80)
+        self.logger.log("EASYPQP WORKFLOW EXECUTION STARTED")
+        self.logger.log("=" * 80)
+
+        # Find the easypqp executable
+        # This should be in the venv's bin directory
+        easypqp_cmd = shutil.which("easypqp")
+        if not easypqp_cmd:
+            self.logger.log("❌ ERROR: 'easypqp' command not found in PATH")
+            self.logger.log(
+                f"Searched in PATH. Current sys.prefix: {sys.prefix}"
+            )
+            return False
+
+        self.logger.log(f"Found easypqp at: {easypqp_cmd}")
+
         # Validate required params
+        self.logger.log("Loading parameters from JSON...")
         params = self.parameter_manager.get_parameters_from_json()
+        self.logger.log(f"Parameters loaded. Keys: {list(params.keys())}")
 
         # Prepare results directory
         results_dir = Path(self.workflow_dir, "results", "insilico")
         results_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.log(f"Results directory ready: {results_dir}")
 
         # Check if a config file was provided (preferred method)
         config_file = params.get("config_file")
-        if config_file and Path(config_file).exists():
-            self.logger.log(f"Using merged config file: {config_file}")
-            output_file = params.get(
-                "output_file", str(Path(results_dir, "easypqp_insilico_library.tsv"))
+        self.logger.log(f"Config file from params: {config_file}")
+
+        if config_file:
+            config_path = Path(config_file)
+            self.logger.log(f"Config path exists check: {config_path.exists()}")
+            self.logger.log(
+                f"Config file content size: {config_path.stat().st_size if config_path.exists() else 'N/A'}"
             )
 
-            # Build command using config file
-            cmd = [
-                sys.executable,
-                "-m",
-                "easypqp.main",
-                "insilico-library",
-                "--config",
-                str(config_file),
-                "--output_file",
-                str(output_file),
-            ]
+            if config_path.exists():
+                self.logger.log(f"Using merged config file: {config_file}")
+                output_file = params.get(
+                    "output_file",
+                    str(Path(results_dir, "easypqp_insilico_library.tsv")),
+                )
+                self.logger.log(f"Output file: {output_file}")
 
-            # Run command via executor
-            self.logger.log(f"Launching EasyPQP with config: {' '.join(cmd)}")
-            success = self.executor.run_command(cmd)
-            if not success:
-                self.logger.log("EasyPQP execution failed.")
-                return False
+                # Build command using config file
+                # Use the easypqp executable found above
+                cmd = [
+                    easypqp_cmd,
+                    "insilico-library",
+                    "--config",
+                    str(config_file),
+                    "--output_file",
+                    str(output_file),
+                ]
 
-            self.logger.log("EasyPQP execution finished successfully.")
-            return True
+                # Run command via executor
+                cmd_str = " ".join(cmd)
+                self.logger.log(f"Full command: {cmd_str}")
+                self.logger.log("Spawning subprocess...")
+                success = self.executor.run_command(cmd)
+
+                if not success:
+                    self.logger.log("❌ EasyPQP execution failed (non-zero exit code).")
+                    return False
+
+                self.logger.log("✅ EasyPQP execution finished successfully.")
+                return True
+            else:
+                self.logger.log(f"⚠️ Config file not found at: {config_file}")
+        else:
+            self.logger.log("⚠️ No config_file in parameters")
 
         # Fallback: build command from individual parameters
         fasta_param = params.get("fasta")
@@ -101,10 +143,9 @@ class EasyPQPWorkflow(WorkflowManager):
         )
 
         # Build command
+        # Use 'easypqp' CLI entry point (not python -m easypqp.main)
         cmd = [
-            sys.executable,
-            "-m",
-            "easypqp.main",
+            easypqp_cmd,
             "insilico-library",
             "--fasta",
             str(fasta_path),
