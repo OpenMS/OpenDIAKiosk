@@ -11,6 +11,7 @@ import importlib.util
 import json
 import streamlit as st
 
+
 class CommandExecutor:
     """
     Manages the execution of external shell commands such as OpenMS TOPP tools within a Streamlit application.
@@ -20,8 +21,11 @@ class CommandExecutor:
     commands and batches of commands in parallel, leveraging Python's subprocess module
     for execution.
     """
+
     # Methods for running commands and logging
-    def __init__(self, workflow_dir: Path, logger: Logger, parameter_manager: ParameterManager):
+    def __init__(
+        self, workflow_dir: Path, logger: Logger, parameter_manager: ParameterManager
+    ):
         self.pid_dir = Path(workflow_dir, "pids")
         self.logger = logger
         self.parameter_manager = parameter_manager
@@ -48,9 +52,7 @@ class CommandExecutor:
 
         return max(1, int(value))
 
-    def run_multiple_commands(
-        self, commands: list[str]
-    ) -> bool:
+    def run_multiple_commands(self, commands: list[str]) -> bool:
         """
         Executes multiple shell commands concurrently in separate threads.
 
@@ -72,7 +74,10 @@ class CommandExecutor:
         parallel_commands = min(num_commands, max_threads)
 
         # Log the start of command execution
-        self.logger.log(f"Running {num_commands} commands (max {parallel_commands} parallel, {max_threads} total threads)...", 1)
+        self.logger.log(
+            f"Running {num_commands} commands (max {parallel_commands} parallel, {max_threads} total threads)...",
+            1,
+        )
         start_time = time.time()
 
         results = []
@@ -100,7 +105,10 @@ class CommandExecutor:
 
         # Calculate and log the total execution time
         end_time = time.time()
-        self.logger.log(f"Total time to run {num_commands} commands: {end_time - start_time:.2f} seconds", 1)
+        self.logger.log(
+            f"Total time to run {num_commands} commands: {end_time - start_time:.2f} seconds",
+            1,
+        )
 
         return all(results)
 
@@ -117,21 +125,36 @@ class CommandExecutor:
         # Ensure all command parts are strings
         command = [str(c) for c in command]
 
+        cmd_str = " ".join(command)
+        print(f"[DEBUG] run_command() called with: {cmd_str}")
+
         # Log the execution start
-        self.logger.log(f"Running command:\n"+' '.join(command)+"\nWaiting for command to finish...", 1)   
-        start_time = time.time()
-        
-        # Execute the command with real-time output capture
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True
+        self.logger.log(
+            f"Running command:\n{cmd_str}\nWaiting for command to finish...", 1
         )
-        child_pid = process.pid
-        
+        print(f"[DEBUG] About to spawn subprocess with Popen...")
+
+        start_time = time.time()
+
+        # Execute the command with real-time output capture
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True,
+            )
+            child_pid = process.pid
+            print(f"[DEBUG] Subprocess spawned successfully with PID: {child_pid}")
+            self.logger.log(f"Process spawned with PID: {child_pid}")
+
+        except Exception as e:
+            print(f"[DEBUG] Failed to spawn subprocess: {e}")
+            self.logger.log(f"❌ Failed to spawn subprocess: {e}")
+            return False
+
         # Record the PID to keep track of running processes associated with this workspace/workflow
         # User can close the Streamlit app and return to a running workflow later
         pid_file_path = self.pid_dir / str(child_pid)
@@ -144,7 +167,9 @@ class CommandExecutor:
         self._stream_output(process, stderr_buffer)
 
         # Wait for process completion
+        print(f"[DEBUG] Waiting for process to complete...")
         process.wait()
+        print(f"[DEBUG] Process completed with return code: {process.returncode}")
 
         # Cleanup PID file
         pid_file_path.unlink()
@@ -153,18 +178,29 @@ class CommandExecutor:
         execution_time = end_time - start_time
 
         # Log completion
-        self.logger.log(f"Process finished:\n"+' '.join(command)+f"\nTotal time to run command: {execution_time:.2f} seconds", 1)
+        self.logger.log(
+            f"Process finished:\n{cmd_str}\nTotal time to run command: {execution_time:.2f} seconds\nExit code: {process.returncode}",
+            1,
+        )
 
         # Check for errors
         if process.returncode != 0:
+            print(f"[DEBUG] Process exited with error code {process.returncode}")
             # Write buffered stderr to minimal log only on failure
             for line in stderr_buffer:
                 self.logger.log(f"STDERR: {line}", 0)
-            self.logger.log(f"ERROR: Command failed with exit code {process.returncode}: {command[0]}", 0)
+            self.logger.log(
+                f"❌ ERROR: Command failed with exit code {process.returncode}: {command[0]}",
+                0,
+            )
             return False
+
+        print(f"[DEBUG] Process completed successfully")
         return True
 
-    def _stream_output(self, process: subprocess.Popen, stderr_buffer: list[str]) -> None:
+    def _stream_output(
+        self, process: subprocess.Popen, stderr_buffer: list[str]
+    ) -> None:
         """
         Streams stdout and stderr from a running process in real-time to the logger.
         This method runs in the workflow process, not the GUI thread, so it's safe to block.
@@ -176,10 +212,11 @@ class CommandExecutor:
             process: The subprocess.Popen object to stream from
             stderr_buffer: A list to accumulate stderr lines for conditional logging
         """
+
         def read_stdout():
             """Read stdout in real-time"""
             try:
-                for line in iter(process.stdout.readline, ''):
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         self.logger.log(line.rstrip(), 2)
                     if process.poll() is not None:
@@ -192,7 +229,7 @@ class CommandExecutor:
         def read_stderr():
             """Read stderr in real-time, buffering for conditional minimal log output"""
             try:
-                for line in iter(process.stderr.readline, ''):
+                for line in iter(process.stderr.readline, ""):
                     if line:
                         stderr_line = line.rstrip()
                         stderr_buffer.append(stderr_line)
@@ -247,7 +284,9 @@ class CommandExecutor:
         io_lengths = [len(v) for v in input_output.values() if len(v) > 1]
 
         if len(set(io_lengths)) > 1:
-            raise ValueError(f"ERROR in {tool} input/output.\nFile list lengths must be 1 and/or the same. They are {io_lengths}.")
+            raise ValueError(
+                f"ERROR in {tool} input/output.\nFile list lengths must be 1 and/or the same. They are {io_lengths}."
+            )
 
         if len(io_lengths) == 0:  # all inputs/outputs are length == 1
             n_processes = 1
@@ -325,13 +364,13 @@ class CommandExecutor:
         """
         self.logger.log("Stopping all running processes...")
         pids = [Path(f).stem for f in self.pid_dir.iterdir()]
-        
+
         for pid in pids:
             try:
                 os.kill(int(pid), 9)
             except OSError as e:
                 self.logger.log(f"Failed to kill process {pid}: {e}")
-        
+
         shutil.rmtree(self.pid_dir, ignore_errors=True)
         self.logger.log("Workflow stopped.")
 
@@ -362,7 +401,7 @@ class CommandExecutor:
             path = Path("src", "python-tools", script_file)
             if not path.exists():
                 self.logger.log(f"Script file not found: {script_file}")
-                
+
         # load DEFAULTS
         if path.parent not in sys.path:
             sys.path.append(str(path.parent))
@@ -377,7 +416,11 @@ class CommandExecutor:
         elif isinstance(defaults, list):
             defaults = {entry["key"]: entry["value"] for entry in defaults}
             # load paramters from JSON file
-            params = {k: v for k, v in self.parameter_manager.get_parameters_from_json().items() if path.name in k}
+            params = {
+                k: v
+                for k, v in self.parameter_manager.get_parameters_from_json().items()
+                if path.name in k
+            }
             # update defaults
             for k, v in params.items():
                 defaults[k.replace(f"{path.name}:", "")] = v
