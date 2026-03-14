@@ -34,7 +34,8 @@ default_workspace = Path(st.session_state.get("workspace", ".")).resolve()
 easypqp_results_dir = Path(default_workspace, "easypqp-insilico", "results", "insilico").resolve()
 existing_libraries = []
 if easypqp_results_dir.exists():
-    existing_libraries = sorted([f.name for f in easypqp_results_dir.glob("*") if f.is_file()])
+    valid_extensions = {".traml", ".tsv", ".mrm", ".pqp", ".oswpq"}
+    existing_libraries = sorted([f.name for f in easypqp_results_dir.glob("*") if f.is_file() and f.suffix.lower() in valid_extensions])
 
 # Option 1: Select from existing EasyPQP libraries
 if existing_libraries:
