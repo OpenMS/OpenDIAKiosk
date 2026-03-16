@@ -17,6 +17,18 @@ if __name__ == "__main__":
                 Path("content", "documentation.py"), title="Documentation", icon="📖"
             ),
         ],
+        "Getting started with DIA": [
+            st.Page(
+                Path("content", "dia_00_concepts.py"),
+                title="Concepts",
+                icon="📚",
+            ),
+            st.Page(
+                Path("content", "dia_01_targeted_data_extraction.py"),
+                title="Targeted Data Extraction",
+                icon="🧪",
+            )
+        ],
         "Spectral Library Generation": [
             st.Page(
                 Path("content", "insilico_spectral_library_generation.py"),
