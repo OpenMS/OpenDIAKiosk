@@ -9,12 +9,13 @@ import pyopenms as poms
 import pyopenms_viz  # noqa: F401  # registers plotting backends for pandas
 import streamlit as st
 import plotly
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy
 from scipy.spatial import cKDTree
 
 from src.common.common import page_setup
-from utils.dia_tutorial import mz_extraction_windows, filter_spectrum, reduce_spectra, annotate_filtered_spectra, apply_sgolay, msexperiment_to_dataframe, plot_3d_binned_xic_scatter
+from utils.dia_tutorial import mz_extraction_windows, filter_spectrum, reduce_spectra, annotate_filtered_spectra, apply_sgolay, msexperiment_to_dataframe, bin_3d_trace_df, add_binned_intensity_trace, add_binned_annotation_traces
 
 page_setup()
 
@@ -47,7 +48,7 @@ def _range(df: pd.DataFrame, col: str) -> str:
         return _fmt_num(mn)
     return f"{_fmt_num(mn)} – {_fmt_num(mx)}"
 
-st.title("Getting Started With DIA")
+st.title("Getting Started With Targeted Data Extraction")
 st.markdown(
     """
 This page will walk you through the typical concepts for DIA data anlysis using peptide-centric targeted data extraction. We will use a small sample dataset from the [DIA PASEF Evosep dataset (PXD017703)](https://www.ebi.ac.uk/pride/archive/projects/PXD017703) published by Meier et al., 2020. This dataset contains DIA data acquired on a Bruker timsTOF Pro instrument using the Evosep One LC system. The sample file we will use is a small subset of the full experiment run (*20200505_Evosep_200SPD_SG06-16_MLHeLa_200ng_py8_S3-A1_1_2737*), containing spectra in the MS1 precursor m/z range 660-700 and RT range 130-170s. 
@@ -58,14 +59,16 @@ st.markdown("---")
 st.subheader("Setup & Imports")
 st.code(
     f"""import numpy as np # v{np.__version__}
-    import pandas as pd # v{pd.__version__}
+import pandas as pd # v{pd.__version__}
 import matplotlib.pyplot as plt # v{matplotlib.__version__}
 import pyopenms as poms # v{poms.__version__}
 import pyopenms_viz # v{pyopenms_viz.__version__}, registers MS plotting methods for pandas dataframes
-from plotly.subplots import make_subplots # v{plotly.__version__}
+import plotly # v{plotly.__version__}
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots 
 from scipy.spatial import cKDTree # v{scipy.__version__}
 # Method imports below are local modules part of the DIAapp
-from utils.dia_tutorial import filter_spectra, annotate_filtered_spectra""",
+from utils.dia_tutorial import mz_extraction_windows, filter_spectrum, reduce_spectra, annotate_filtered_spectra, apply_sgolay, msexperiment_to_dataframe, bin_3d_trace_df, add_binned_intensity_trace, add_binned_annotation_traces""",
     language="python",
 )
 
@@ -655,7 +658,7 @@ fig_3d.layout.annotations[1].x = 0.75
         .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] \
         .apply(apply_sgolay, 
                 window_length=9,
-                polyorder=5) \
+                polyorder=3) \
         .reset_index(drop=True) \
         .plot(
             kind="chromatogram",
@@ -731,7 +734,7 @@ smoothed_chrom_fig = exp_df_targeted.apply(
 .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] \
 .apply(apply_sgolay, 
         window_length=9,
-        polyorder=5) \
+        polyorder=3) \
 .reset_index(drop=True) \
 .plot(
     kind="chromatogram",
@@ -788,7 +791,6 @@ chrom_subfig.update_layout(
         ms1_ion_df = ion_df.loc[ion_df["ms_level"] == 1]
         ms2_ion_df = ion_df.loc[ion_df["ms_level"] == 2]
         
-        
         st.write("MS1 Spectra")
         ms1_table = (
             "| Metric | Range |\n"
@@ -814,26 +816,28 @@ chrom_subfig.update_layout(
         with st.spinner("Generating 3D ion-mobility peakmaps — this may take a moment..."):
             progress = st.progress(0)
 
-            fig1, binned_df = plot_3d_binned_xic_scatter(
+            ms1_binned = bin_3d_trace_df(
                 ms1_ion_df,
+                rt_col="rt",
+                mz_col="mz",
+                im_col="ion_mobility",
+                intensity_col="intensity",
                 bins=(100, 100, 50),
                 intensity_agg="mean",
-                log_color=True,
-                title="MS1 Peakmap with Ion Mobility",
             )
             progress.progress(30)
 
-            fig2, binned_df = plot_3d_binned_xic_scatter(
+            ms2_binned = bin_3d_trace_df(
                 ms2_ion_df,
+                rt_col="rt",
+                mz_col="mz",
+                im_col="ion_mobility",
+                intensity_col="intensity",
                 bins=(100, 100, 50),
                 intensity_agg="mean",
-                log_color=True,
-                title="MS2 Peakmap with Ion Mobility",
             )
             progress.progress(60)
 
-            # Combine the two figures into subplots, pairing traces so the legend
-            # is shown once and toggles affect both panels. Also set axis titles.
             fig = make_subplots(
                 rows=1,
                 cols=2,
@@ -842,37 +846,38 @@ chrom_subfig.update_layout(
             )
             progress.progress(70)
 
-            n1 = len(fig1.data)
-            n2 = len(fig2.data)
-            max_n = max(n1, n2)
-            for i in range(max_n):
-                t1 = fig1.data[i] if i < n1 else None
-                t2 = fig2.data[i] if i < n2 else None
+            # Shared color scale across both panels
+            all_color_vals = []
+            if not ms1_binned.empty:
+                all_color_vals.append(ms1_binned["agg_value"].to_numpy(dtype=float))
+            if not ms2_binned.empty:
+                all_color_vals.append(ms2_binned["agg_value"].to_numpy(dtype=float))
 
-                if t1 is not None:
-                    # Ensure a name exists for legend grouping
-                    name = getattr(t1, "name", None) or f"trace_{i}"
-                    t1.name = name
-                    t1.legendgroup = name
-                    t1.showlegend = True
-                    fig.add_trace(t1, row=1, col=1)
+            if all_color_vals:
+                all_color_vals = np.concatenate(all_color_vals)
+                all_color_vals = np.log10(np.clip(all_color_vals, 0, None) + 1.0)
+                cmin, cmax = np.quantile(all_color_vals, [0.01, 0.99])
+            else:
+                cmin, cmax = 0.0, 1.0
 
-                if t2 is not None:
-                    # Use the same legendgroup/name so toggling uses a single legend
-                    name2 = getattr(t2, "name", None) or (getattr(t1, "name", None) if t1 is not None else f"trace_{i}")
-                    t2.name = name2
-                    t2.legendgroup = name2
-                    # hide duplicate legend entry for the right panel
-                    t2.showlegend = False
-                    fig.add_trace(t2, row=1, col=2)
+            add_binned_intensity_trace(fig, ms1_binned, row=1, col=1, name="MS1", cmin=cmin, cmax=cmax)
+            add_binned_intensity_trace(fig, ms2_binned, row=1, col=2, name="MS2", cmin=cmin, cmax=cmax)
 
             progress.progress(90)
 
-            # Axis labels for both 3D scenes
             fig.update_layout(
-                scene=dict(xaxis_title="Retention Time (s)", yaxis_title="m/z", zaxis_title="Ion mobility"),
-                scene2=dict(xaxis_title="Retention Time (s)", yaxis_title="m/z", zaxis_title="Ion mobility"),
-                legend=dict(title="Transition"),
+                scene=dict(
+                    xaxis_title="Retention Time (s)",
+                    yaxis_title="m/z",
+                    zaxis_title="Ion mobility",
+                ),
+                scene2=dict(
+                    xaxis_title="Retention Time (s)",
+                    yaxis_title="m/z",
+                    zaxis_title="Ion mobility",
+                ),
+                showlegend=False,
+                margin=dict(l=0, r=0, t=50, b=0),
             )
 
             progress.progress(100)
@@ -880,15 +885,82 @@ chrom_subfig.update_layout(
         
         st.markdown("""Looking at the spectra in 3D with the ion mobility dimension, we can see just how much more complicated the data looks like. It just looks like blobs of color""")
         
+        with st.expander("Code:"):
+            st.code(
+                """ion_df = msexperiment_to_dataframe(exp)
+ms1_ion_df = ion_df.loc[ion_df["ms_level"] == 1]
+ms2_ion_df = ion_df.loc[ion_df["ms_level"] == 2]
+
+ms1_binned = bin_3d_trace_df(
+    ms1_ion_df,
+    rt_col="rt",
+    mz_col="mz",
+    im_col="ion_mobility",
+    intensity_col="intensity",
+    bins=(100, 100, 50),
+    intensity_agg="mean",
+)
+
+ms2_binned = bin_3d_trace_df(
+    ms2_ion_df,
+    rt_col="rt",
+    mz_col="mz",
+    im_col="ion_mobility",
+    intensity_col="intensity",
+    bins=(100, 100, 50),
+    intensity_agg="mean",
+)
+
+fig = make_subplots(
+    rows=1,
+    cols=2,
+    specs=[[{"type": "scene"}, {"type": "scene"}]],
+    subplot_titles=["MS1 Spectra", "MS2 Spectra"],
+)
+
+# Shared color scale across both panels
+all_color_vals = []
+if not ms1_binned.empty:
+    all_color_vals.append(ms1_binned["agg_value"].to_numpy(dtype=float))
+if not ms2_binned.empty:
+    all_color_vals.append(ms2_binned["agg_value"].to_numpy(dtype=float))
+
+if all_color_vals:
+    all_color_vals = np.concatenate(all_color_vals)
+    all_color_vals = np.log10(np.clip(all_color_vals, 0, None) + 1.0)
+    cmin, cmax = np.quantile(all_color_vals, [0.01, 0.99])
+else:
+    cmin, cmax = 0.0, 1.0
+
+add_binned_intensity_trace(fig, ms1_binned, row=1, col=1, name="MS1", cmin=cmin, cmax=cmax)
+add_binned_intensity_trace(fig, ms2_binned, row=1, col=2, name="MS2", cmin=cmin, cmax=cmax)
+
+fig.update_layout(
+    scene=dict(
+        xaxis_title="Retention Time (s)",
+        yaxis_title="m/z",
+        zaxis_title="Ion mobility",
+    ),
+    scene2=dict(
+        xaxis_title="Retention Time (s)",
+        yaxis_title="m/z",
+        zaxis_title="Ion mobility",
+    ),
+    showlegend=False,
+    margin=dict(l=0, r=0, t=50, b=0),
+)                
+""",
+                language="python",
+            )
+                
         
         st.markdown("---")
         st.markdown("#### Filtering Spectra Including Ion Mobility")
-        
-        
-        st.markdown("""Like m/z and retention time filtering, we can further filter the spectra by ion mobility as well. This means we need to have another coordinate to extract and filter around a targeted ion mobility value. For our target peptide of interest, from prior analysis, the targeted ion mobility value is **0.96756938061**. We can include this target ion mobility in our filtering criteria using a tolerance window of 0.06.""")
+                
+        st.markdown("""Like m/z and retention time filtering, we can further filter the spectra by ion mobility as well. This means we need to have another coordinate to extract and filter around a targeted ion mobility value. For our target peptide of interest, from prior analysis, the targeted ion mobility value is **0.96756938061**. We can include this target ion mobility in our filtering criteria using a tolerance window of 0.08.""")
         
         target_im = 0.96756938061
-        im_tol = 0.06        
+        im_tol = 0.08        
         filtered_exp_with_im  = reduce_spectra(exp, float(precursor_mz), product_mzs, float(prec_mz_tol), float(prod_mz_tol), float(target_im), float(im_tol))
         filtered_exp_with_im.updateRanges()
         exp_df_targeted_with_im = msexperiment_to_dataframe(filtered_exp_with_im)
@@ -903,75 +975,572 @@ chrom_subfig.update_layout(
             prod_mz_tol=float(prod_mz_tol),
         )
         
-        ion_df_filtered = msexperiment_to_dataframe(filtered_exp_with_im)
-        st.write(print(ion_df_filtered.head()))
-        
         with st.spinner("Generating 3D ion-mobility peakmaps — this may take a moment..."):
             progress = st.progress(0)
 
-            fig1, binned_df = plot_3d_binned_xic_scatter(
+            # raw panel
+            raw_binned = bin_3d_trace_df(
                 ion_df,
+                rt_col="rt",
+                mz_col="mz",
+                im_col="ion_mobility",
+                intensity_col="intensity",
                 bins=(100, 100, 50),
                 intensity_agg="mean",
-                log_color=True,
-                title="Raw Peakmap with Ion Mobility",
             )
             progress.progress(30)
 
-            fig2, binned_df = plot_3d_binned_xic_scatter(
-                ion_df_filtered,
-                bins=(100, 100, 50),
-                intensity_agg="mean",
-                log_color=True,
-                title="Filtered Peakmap with Ion Mobility",
-            )
-            progress.progress(60)
-
-            # Combine the two figures into subplots, pairing traces so the legend
-            # is shown once and toggles affect both panels. Also set axis titles.
             fig = make_subplots(
                 rows=1,
                 cols=2,
                 specs=[[{"type": "scene"}, {"type": "scene"}]],
                 subplot_titles=["Raw Spectra", "Filtered Spectra"],
             )
-            progress.progress(70)
 
-            n1 = len(fig1.data)
-            n2 = len(fig2.data)
-            max_n = max(n1, n2)
-            for i in range(max_n):
-                t1 = fig1.data[i] if i < n1 else None
-                t2 = fig2.data[i] if i < n2 else None
+            # raw colors
+            raw_color = raw_binned["agg_value"].to_numpy(dtype=float)
+            raw_color = np.log10(np.clip(raw_color, 0, None) + 1.0)
 
-                if t1 is not None:
-                    # Ensure a name exists for legend grouping
-                    name = getattr(t1, "name", None) or f"trace_{i}"
-                    t1.name = name
-                    t1.legendgroup = name
-                    t1.showlegend = True
-                    fig.add_trace(t1, row=1, col=1)
+            if len(raw_color) > 0:
+                cmin, cmax = np.quantile(raw_color, [0.01, 0.99])
+            else:
+                cmin, cmax = 0.0, 1.0
 
-                if t2 is not None:
-                    # Use the same legendgroup/name so toggling uses a single legend
-                    name2 = getattr(t2, "name", None) or (getattr(t1, "name", None) if t1 is not None else f"trace_{i}")
-                    t2.name = name2
-                    t2.legendgroup = name2
-                    # hide duplicate legend entry for the right panel
-                    t2.showlegend = False
-                    fig.add_trace(t2, row=1, col=2)
+            fig.add_trace(
+                go.Scatter3d(
+                    x=raw_binned["rt"],
+                    y=raw_binned["mz"],
+                    z=raw_binned["ion_mobility"],
+                    mode="markers",
+                    name="all",
+                    showlegend=False,
+                    marker=dict(
+                        symbol="square",
+                        size=4,
+                        opacity=0.9,
+                        color=raw_color,
+                        colorscale="Viridis",
+                        cmin=float(cmin),
+                        cmax=float(cmax),
+                        showscale=False,
+                        line=dict(width=0),
+                    ),
+                    customdata=np.stack(
+                        [
+                            raw_binned["count"].to_numpy(dtype=float),
+                            raw_binned["agg_value"].to_numpy(dtype=float),
+                        ],
+                        axis=-1,
+                    ),
+                    hovertemplate=(
+                        "rt: %{x:.4f}<br>"
+                        "mz: %{y:.4f}<br>"
+                        "ion_mobility: %{z:.4f}<br>"
+                        "count: %{customdata[0]:.0f}<br>"
+                        "mean(intensity): %{customdata[1]:.4f}"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=1,
+                col=1,
+            )
+            progress.progress(55)
 
-            progress.progress(90)
+            # filtered panel: separate real traces by annotation, plus dummy legend traces
+            fig = add_binned_annotation_traces(
+                fig,
+                exp_df_targeted_with_im,
+                row=1,
+                col=2,
+                annotation_col="annotation",
+                rt_col="rt",
+                mz_col="mz",
+                im_col="ion_mobility",
+                intensity_col="intensity",
+                bins=(100, 100, 50),
+                intensity_agg="mean",
+                log_color=True,
+                color_quantile_clip=(0.01, 0.99),
+                marker_size=4,
+                marker_opacity=0.9,
+            )
+            progress.progress(85)
 
-            # Axis labels for both 3D scenes
             fig.update_layout(
-                scene=dict(xaxis_title="Retention Time (s)", yaxis_title="m/z", zaxis_title="Ion mobility"),
-                scene2=dict(xaxis_title="Retention Time (s)", yaxis_title="m/z", zaxis_title="Ion mobility"),
-                legend=dict(title="Transition"),
+                scene=dict(
+                    xaxis_title="Retention Time (s)",
+                    yaxis_title="m/z",
+                    zaxis_title="Ion mobility",
+                ),
+                scene2=dict(
+                    xaxis_title="Retention Time (s)",
+                    yaxis_title="m/z",
+                    zaxis_title="Ion mobility",
+                ),
+                legend=dict(
+                    title="Annotation",
+                    x=1.02,
+                    y=1.0,
+                    xanchor="left",
+                    yanchor="top",
+                    groupclick="togglegroup",
+                ),
+                margin=dict(l=0, r=0, t=50, b=0),
             )
 
             progress.progress(100)
             st.plotly_chart(fig, use_container_width=True)
+            
+        st.markdown("From the filtered spectra, we get a much clearer picture of the spectral features corresponding to our target peptide, and how they are distributed in the ion mobility dimension. We can see that the targeted spectra (colored by annotation) cluster around the target ion mobility value, which is consistent with our expectation. This ion mobility filtering can help to further reduce interference from co-eluting peptides in DIA data, and improve the quality of extracted chromatograms and downstream quantification.") 
+        
+        with st.expander("Code:"):
+            st.code(
+                """target_im = 0.96756938061
+im_tol = 0.08  
+filtered_exp_with_im  = reduce_spectra(exp, float(precursor_mz), product_mzs, float(prec_mz_tol), float(prod_mz_tol), float(target_im), float(im_tol))
+filtered_exp_with_im.updateRanges()
+exp_df_targeted_with_im = msexperiment_to_dataframe(filtered_exp_with_im)
+exp_df_targeted_with_im = annotate_filtered_spectra(
+    filtered_df=exp_df_targeted_with_im,
+    precursor_mz=float(precursor_mz),
+    precursor_charge=int(precursor_charge),
+    product_mzs=product_mzs,
+    product_charges=product_charges,
+    product_annotations=product_annotations,
+    prec_mz_tol=float(prec_mz_tol),
+    prod_mz_tol=float(prod_mz_tol),
+)
+        
+raw_binned = bin_3d_trace_df(
+    ion_df,
+    rt_col="rt",
+    mz_col="mz",
+    im_col="ion_mobility",
+    intensity_col="intensity",
+    bins=(100, 100, 50),
+    intensity_agg="mean",
+)
+
+fig = make_subplots(
+    rows=1,
+    cols=2,
+    specs=[[{"type": "scene"}, {"type": "scene"}]],
+    subplot_titles=["Raw Spectra", "Filtered Spectra"],
+)
+
+# raw colors
+raw_color = raw_binned["agg_value"].to_numpy(dtype=float)
+raw_color = np.log10(np.clip(raw_color, 0, None) + 1.0)
+
+if len(raw_color) > 0:
+    cmin, cmax = np.quantile(raw_color, [0.01, 0.99])
+else:
+    cmin, cmax = 0.0, 1.0
+
+fig.add_trace(
+    go.Scatter3d(
+        x=raw_binned["rt"],
+        y=raw_binned["mz"],
+        z=raw_binned["ion_mobility"],
+        mode="markers",
+        name="all",
+        showlegend=False,
+        marker=dict(
+            symbol="square",
+            size=4,
+            opacity=0.9,
+            color=raw_color,
+            colorscale="Viridis",
+            cmin=float(cmin),
+            cmax=float(cmax),
+            showscale=False,
+            line=dict(width=0),
+        ),
+        customdata=np.stack(
+            [
+                raw_binned["count"].to_numpy(dtype=float),
+                raw_binned["agg_value"].to_numpy(dtype=float),
+            ],
+            axis=-1,
+        ),
+        hovertemplate=(
+            "rt: %{x:.4f}<br>"
+            "mz: %{y:.4f}<br>"
+            "ion_mobility: %{z:.4f}<br>"
+            "count: %{customdata[0]:.0f}<br>"
+            "mean(intensity): %{customdata[1]:.4f}"
+            "<extra></extra>"
+        ),
+    ),
+    row=1,
+    col=1,
+)
+
+# filtered panel: separate real traces by annotation, plus dummy legend traces
+fig = add_binned_annotation_traces(
+    fig,
+    exp_df_targeted_with_im,
+    row=1,
+    col=2,
+    annotation_col="annotation",
+    rt_col="rt",
+    mz_col="mz",
+    im_col="ion_mobility",
+    intensity_col="intensity",
+    bins=(100, 100, 50),
+    intensity_agg="mean",
+    log_color=True,
+    color_quantile_clip=(0.01, 0.99),
+    marker_size=4,
+    marker_opacity=0.9,
+)
+
+fig.update_layout(
+    scene=dict(
+        xaxis_title="Retention Time (s)",
+        yaxis_title="m/z",
+        zaxis_title="Ion mobility",
+    ),
+    scene2=dict(
+        xaxis_title="Retention Time (s)",
+        yaxis_title="m/z",
+        zaxis_title="Ion mobility",
+    ),
+    legend=dict(
+        title="Annotation",
+        x=1.02,
+        y=1.0,
+        xanchor="left",
+        yanchor="top",
+        groupclick="togglegroup",
+    ),
+    margin=dict(l=0, r=0, t=50, b=0),
+)
+                """,
+                language="python",
+            )
+        
+        st.markdown("---")
+        st.markdown("#### Extracted Ion Chromatogram")
+
+        # Extraction without ion mobility filtering
+        chrom_fig = exp_df_targeted.plot(
+            kind="chromatogram",
+            x="rt",
+            y="intensity",
+            by="annotation",
+            title="Chromatogram",
+            aggregate_duplicates=True,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        group_cols=['ms_level', 'annotation', 'rt']
+        integrate_col = 'intensity'
+        smoothed_chrom_fig = exp_df_targeted.apply(
+                lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
+                window_length=9,
+                polyorder=3) .reset_index(drop=True) .plot(
+            kind="chromatogram",
+            x="rt",
+            y="smoothed_int",
+            by="annotation",
+            title="Smoothed Chromatogram",
+            aggregate_duplicates=False,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        # Extraction with ion mobility filtering
+        chrom_fig_im = exp_df_targeted_with_im.plot(
+            kind="chromatogram",
+            x="rt",
+            y="intensity",
+            by="annotation",
+            title="Chromatogram with Ion Mobility Filtering",
+            aggregate_duplicates=True,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        smoothed_chrom_fig_im  = exp_df_targeted_with_im.apply(
+                lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
+                window_length=9,
+                polyorder=3) .reset_index(drop=True) .plot(
+            kind="chromatogram",
+            x="rt",
+            y="smoothed_int",
+            by="annotation",
+            title="Smoothed Chromatogram",
+            aggregate_duplicates=False,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        chrom_subfig = make_subplots(
+            rows=2,
+            cols=2,
+            subplot_titles=["Raw Chromatogram (no IM)", "Smoothed Chromatogram (no IM)", "Raw Chromatogram (with IM)", "Smoothed Chromatogram (with IM)"],
+        )
+        
+        # Add traces to subfig and share legend groups for toggling
+        for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig.data, smoothed_chrom_fig.data)):
+            name = getattr(t_raw, "name", None)
+            if name is not None:
+                t_raw.name = name
+                t_raw.legendgroup = name
+                t_raw.showlegend = True
+
+                t_smooth.name = name
+                t_smooth.legendgroup = name
+                t_smooth.showlegend = False
+                chrom_subfig.add_trace(t_raw, row=1, col=1)
+                chrom_subfig.add_trace(t_smooth, row=1, col=2)
+        for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig_im.data, smoothed_chrom_fig_im.data)):
+            name = getattr(t_raw, "name", None)
+            if name is not None:
+                t_raw.name = name
+                t_raw.legendgroup = name
+                t_raw.showlegend = True
+
+                t_smooth.name = name
+                t_smooth.legendgroup = name
+                t_smooth.showlegend = False
+                chrom_subfig.add_trace(t_raw, row=2, col=1)
+                chrom_subfig.add_trace(t_smooth, row=2, col=2)
+        chrom_subfig.update_layout(
+            width=1200,
+            height=800
+        )
+        st.plotly_chart(chrom_subfig, use_container_width=True)
+
+        st.markdown("For this small sampled dataset, the impact is small, but you can still see that when utilizing the ion mobility dimension to filter the spectra for our peptide of interest, we reduce some of the noise (most noticably in the MS1) of the extracted spectra, resulting in less noisy extracted ion chromatograms.")
+
+        with st.expander("Code:"):
+            st.code(
+                """# Extraction without ion mobility filtering
+chrom_fig = exp_df_targeted.plot(
+    kind="chromatogram",
+    x="rt",
+    y="intensity",
+    by="annotation",
+    title="Chromatogram",
+    aggregate_duplicates=True,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+group_cols=['ms_level', 'annotation', 'rt']
+integrate_col = 'intensity'
+smoothed_chrom_fig = exp_df_targeted.apply(
+        lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+    ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
+        window_length=9,
+        polyorder=3) .reset_index(drop=True) .plot(
+    kind="chromatogram",
+    x="rt",
+    y="smoothed_int",
+    by="annotation",
+    title="Smoothed Chromatogram",
+    aggregate_duplicates=False,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+# Extraction with ion mobility filtering
+chrom_fig_im = exp_df_targeted_with_im.plot(
+    kind="chromatogram",
+    x="rt",
+    y="intensity",
+    by="annotation",
+    title="Chromatogram with Ion Mobility Filtering",
+    aggregate_duplicates=True,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+smoothed_chrom_fig_im  = exp_df_targeted_with_im.apply(
+        lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+    ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
+        window_length=9,
+        polyorder=3) .reset_index(drop=True) .plot(
+    kind="chromatogram",
+    x="rt",
+    y="smoothed_int",
+    by="annotation",
+    title="Smoothed Chromatogram",
+    aggregate_duplicates=False,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+chrom_subfig = make_subplots(
+    rows=2,
+    cols=2,
+    subplot_titles=["Raw Chromatogram (no IM)", "Smoothed Chromatogram (no IM)", "Raw Chromatogram (with IM)", "Smoothed Chromatogram (with IM)"],
+)
+
+# Add traces to subfig and share legend groups for toggling
+for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig.data, smoothed_chrom_fig.data)):
+    name = getattr(t_raw, "name", None)
+    if name is not None:
+        t_raw.name = name
+        t_raw.legendgroup = name
+        t_raw.showlegend = True
+
+        t_smooth.name = name
+        t_smooth.legendgroup = name
+        t_smooth.showlegend = False
+        chrom_subfig.add_trace(t_raw, row=1, col=1)
+        chrom_subfig.add_trace(t_smooth, row=1, col=2)
+for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig_im.data, smoothed_chrom_fig_im.data)):
+    name = getattr(t_raw, "name", None)
+    if name is not None:
+        t_raw.name = name
+        t_raw.legendgroup = name
+        t_raw.showlegend = True
+
+        t_smooth.name = name
+        t_smooth.legendgroup = name
+        t_smooth.showlegend = False
+        chrom_subfig.add_trace(t_raw, row=2, col=1)
+        chrom_subfig.add_trace(t_smooth, row=2, col=2)
+chrom_subfig.update_layout(
+    width=1200,
+    height=800
+)
+            """,
+            language="python",
+            )    
+                
+        st.markdown("---")
+        st.markdown("#### Extracted Ion Mobilogram")
+
+        mobi_fig = exp_df_targeted_with_im.plot(
+            kind="mobilogram",
+            x="ion_mobility",
+            y="intensity",
+            by="annotation",
+            title="Mobilogram",
+            aggregate_duplicates=True,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        group_cols=['ms_level', 'annotation', 'ion_mobility']
+        integrate_col = 'intensity'
+        smoothed_ombi_fig = exp_df_targeted_with_im.apply(
+                lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay,                                                                           along_col="ion_mobility",
+                window_length=9,
+                polyorder=3) .reset_index(drop=True) .plot(
+            kind="mobilogram",
+            x="ion_mobility",
+            y="smoothed_int",
+            by="annotation",
+            title="Smoothed Mobilogram",
+            aggregate_duplicates=False,
+            legend_config=dict(title="Transition"),
+            backend="ms_plotly",
+            show_plot=False,
+        )
+
+        mobi_subfig = make_subplots(
+            rows=1,
+            cols=2,
+            subplot_titles=["Raw Mobilogram", "Smoothed Mobilogram"],
+        )
+
+        # Add traces to subfig and share legend groups for toggling
+        for i, (t_raw, t_smooth) in enumerate(zip(mobi_fig.data, smoothed_ombi_fig.data)):
+            name = getattr(t_raw, "name", None)
+            if name is not None:
+                t_raw.name = name
+                t_raw.legendgroup = name
+                t_raw.showlegend = True
+
+                t_smooth.name = name
+                t_smooth.legendgroup = name
+                t_smooth.showlegend = False
+                mobi_subfig.add_trace(t_raw, row=1, col=1)
+                mobi_subfig.add_trace(t_smooth, row=1, col=2)
+        mobi_subfig.update_layout(
+            width=1200,
+            height=800
+        )
+        st.plotly_chart(mobi_subfig, use_container_width=True)
+
+        st.markdown("The mobilogram shows the intensity of the ions over the ion mobility dimension. Similar to the chromatogram, we can see that the smoothed mobilogram on the right reduces noise and makes it easier to see the ion mobility profiles of the ions corresponding to our target peptide.")
+
+        with st.expander("Code:"):
+            st.code(
+                """mobi_fig = exp_df_targeted_with_im.plot(
+    kind="mobilogram",
+    x="ion_mobility",
+    y="intensity",
+    by="annotation",
+    title="Mobilogram",
+    aggregate_duplicates=True,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+group_cols=['ms_level', 'annotation', 'ion_mobility']
+integrate_col = 'intensity'
+smoothed_ombi_fig = exp_df_targeted_with_im.apply(
+        lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
+    ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay,                                                                           along_col="ion_mobility",
+        window_length=9,
+        polyorder=3) .reset_index(drop=True) .plot(
+    kind="mobilogram",
+    x="ion_mobility",
+    y="smoothed_int",
+    by="annotation",
+    title="Smoothed Mobilogram",
+    aggregate_duplicates=False,
+    legend_config=dict(title="Transition"),
+    backend="ms_plotly",
+    show_plot=False,
+)
+
+mobi_subfig = make_subplots(
+    rows=1,
+    cols=2,
+    subplot_titles=["Raw Mobilogram", "Smoothed Mobilogram"],
+)
+
+# Add traces to subfig and share legend groups for toggling
+for i, (t_raw, t_smooth) in enumerate(zip(mobi_fig.data, smoothed_ombi_fig.data)):
+    name = getattr(t_raw, "name", None)
+    if name is not None:
+        t_raw.name = name
+        t_raw.legendgroup = name
+        t_raw.showlegend = True
+
+        t_smooth.name = name
+        t_smooth.legendgroup = name
+        t_smooth.showlegend = False
+        mobi_subfig.add_trace(t_raw, row=1, col=1)
+        mobi_subfig.add_trace(t_smooth, row=1, col=2)
+mobi_subfig.update_layout(
+    width=1200,
+    height=800
+)
+            """,
+            language="python",
+            )  
         
     except Exception as e:
         st.error(f"Failed to run DIA tutorial workflow: {e}")
@@ -985,3 +1554,7 @@ with st.expander("Click to view code for utility functions used in the tutorial"
     st.code(inspect.getsource(reduce_spectra), language="python")
     st.code(inspect.getsource(annotate_filtered_spectra), language="python")
     st.code(inspect.getsource(apply_sgolay), language="python")
+    st.code(inspect.getsource(msexperiment_to_dataframe), language="python")
+    st.code(inspect.getsource(bin_3d_trace_df), language="python")
+    st.code(inspect.getsource(add_binned_intensity_trace), language="python")
+    st.code(inspect.getsource(add_binned_annotation_traces), language="python")
