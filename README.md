@@ -1,4 +1,14 @@
-# OpenMS streamlit template 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/OpenMS/OpenDIAKiosk/raw/main/assets/OpenDIAKiosk_logo.png" alt="OpenDIAKiosk_Logo" width="200">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/OpenMS/OpenDIAKiosk/raw/main/assets/OpenDIAKiosk_logo.png" alt="OpenDIAKiosk_Logo" width="200">
+    <img alt="OpenDIAKiosk_Logo" comment="Placeholder to transition between light color mode and dark color mode - this image is not directly used." src="https://github.com/OpenMS/OpenDIAKiosk/raw/main/assets/OpenDIAKiosk_logo.png">
+  </picture>
+</p>
+
+---
+
+# OpenDIAKiosk: A Streamlit app for Information and Tools on All Things DIA
 
 [![Open Template!](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://abi-services.cs.uni-tuebingen.de/streamlit-template/)
 
