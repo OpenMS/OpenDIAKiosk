@@ -488,3 +488,74 @@ except FileNotFoundError:
     
 # ------------------------------------
 #   Terminology glossary
+
+st.markdown("---")
+st.subheader("Key Terminology")
+
+terms = {
+    "Precursor ion": (
+        "An intact peptide ion (charge state z ≥ 1) detected in an MS1 scan. "
+        "Characterised by its **m/z**, **charge state z**, and **retention time**. "
+        "In DIA, the precursor is not directly selected, its isolation window is."
+    ),
+    "Isolation window": (
+        "A defined m/z range (e.g. 400–425) within which **all co-eluting "
+        "precursors are fragmented together** during a DIA MS2 scan. Windows are "
+        "tiled across the full m/z range to ensure complete precursor coverage."
+    ),
+    "Fragment ion / transition": (
+        "An ion produced by peptide backbone fragmentation. **b-ions** contain the "
+        "N-terminus; **y-ions** contain the C-terminus. Other ion types (a, x, z) "
+        "exist but are less abundant. In targeted DIA analysis a "
+        "*transition* is a specific precursor → fragment m/z pair used for "
+        "extraction and quantification."
+    ),
+    "Spectral library / Peptide Query Parameter Assays": (
+        "A curated reference database mapping each peptide to its expected "
+        "precursor m/z, retention time (or iRT), and fragment ion m/z / relative "
+        "intensity profile, and precursor ion mobility (in the case of ion mobility coupled MS). Libraries are built from DDA experiments or predicted "
+        "computationally (e.g. Prosit, MS²PIP, AlphaPeptDeep)."
+    ),
+    "Extracted Ion Chromatogram (XIC)": (
+        "The time-series intensity signal obtained by extracting a narrow m/z "
+        "window (± tolerance) from successive MS2 scans. One XIC per transition. "
+        "A peptide is detected when multiple transitions show co-eluting peaks "
+        "at the expected retention time."
+    ),
+    "iRT (indexed Retention Time)": (
+        "A dimensionless, instrument-independent retention time scale calibrated "
+        "using a set of synthetic reference peptides (Biognosys iRT kit). "
+        "Library iRT values are converted to experiment-specific RT via a linear "
+        "regression model built from the spiked-in reference peptides."
+    ),
+    "Spectral angle (SA) / dot-product": (
+        "A score measuring how well the **observed fragment intensities** (from "
+        "the XIC peak apex) match the **library fragment intensities** for a "
+        "candidate peptide. Values range 0–1; 1 = perfect match."
+    ),
+    "Target–Decoy strategy": (
+        "A statistical framework for estimating the False Discovery Rate (FDR). "
+        "For every target peptide a scrambled *decoy* entry is also queried. "
+        "Detections passing a score threshold are accepted; the FDR is estimated "
+        "as the ratio of surviving decoys to surviving targets."
+    ),
+    "FDR (False Discovery Rate)": (
+        "The expected fraction of incorrect identifications among all reported "
+        "identifications. In proteomics a threshold of **1% FDR** is standard, "
+        "meaning at most 1 in 100 reported peptides is expected to be incorrect."
+    ),
+    "Cycle time": (
+        "The time required to complete one full set of MS1 + all MS2 scans. "
+        "Typical SWATH cycle times are 2–4 s. Shorter cycle times improve "
+        "chromatographic sampling (more data points per peak) but reduce "
+        "sensitivity per window."
+    ),
+}
+
+for term, definition in terms.items():
+    with st.expander(f"**{term}**"):
+        st.markdown(definition)
+
+
+
+
