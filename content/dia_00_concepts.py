@@ -10,6 +10,7 @@ import numpy as np
 
 import streamlit as st
 from src.common.common import page_setup
+from utils.dia_tutorial import plot_predicted_ms2_with_interference
 
 page_setup()
 
@@ -193,81 +194,26 @@ fig_to_st(
 #   Annotated MS2 spectrum
 st.markdown('<a id="annotated-ms2"></a>', unsafe_allow_html=True)
 
-# We simulate the MS2 spectrum for WNQLQAFWGTGK (z=2, MW~1409 Da)
-# b-ion masses (singly charged): b1–b11 for WNQLQAFWGTGK
-AA_MASS = {
-    "G": 57.021, "A": 71.037, "V": 99.068, "L": 113.084, "I": 113.084,
-    "P": 97.053, "F": 147.068, "W": 186.079, "M": 131.040, "S": 87.032,
-    "T": 101.048, "C": 103.009, "Y": 163.063, "H": 137.059, "D": 115.027,
-    "E": 129.043, "N": 114.043, "Q": 128.059, "K": 128.095, "R": 156.101,
-}
-H    = 1.00728
-seq  = "WNQLQAFWGTGK"
-
-b_masses = []
-running = 0.0
-for aa in seq[:-1]:
-    running += AA_MASS[aa]
-    b_masses.append(running + H)          # b-ion m/z (z=1)
-
-y_masses = []
-running = 0.0
-for aa in reversed(seq[1:]):
-    running += AA_MASS[aa]
-    y_masses.append(running + H + 18.011) # y-ion m/z (z=1)
-y_masses = y_masses[::-1]                 # y1 first
-
-# Assign relative intensities (simulated, high for mid-series)
-rng_sp = np.random.default_rng(17)
-n_b = len(b_masses); n_y = len(y_masses)
-b_ints = np.clip(rng_sp.normal(0.55, 0.22, n_b) + 0.12 * np.arange(n_b), 0.1, 1.0)
-y_ints = np.clip(rng_sp.normal(0.60, 0.25, n_y) + 0.08 * np.arange(n_y)[::-1], 0.1, 1.0)
-b_ints /= max(b_ints.max(), y_ints.max())
-y_ints /= max(b_ints.max(), y_ints.max())
-
-# Add noise peaks
-n_noise = 35
-noise_mz  = rng_sp.uniform(80, 1280, n_noise)
-noise_int = rng_sp.exponential(0.08, n_noise)
-noise_int  = np.clip(noise_int, 0.01, 0.22)
-
-fig_spec, ax_sp = plt.subplots(figsize=(12, 4.2))
-
-# Noise peaks
-for mz, h in zip(noise_mz, noise_int):
-    ax_sp.plot([mz, mz], [0, h], color="#AAAAAA", lw=1.0, zorder=1)
-
-# b-ion peaks
-for i, (mz, h) in enumerate(zip(b_masses, b_ints)):
-    ax_sp.plot([mz, mz], [0, h], color=B_COLOR, lw=2.0, zorder=3)
-    if h > 0.25:
-        ax_sp.text(mz, h + 0.025, f"b{i+1}+", ha="center", va="bottom",
-                   fontsize=7.5, color=B_COLOR, fontweight="bold")
-
-# y-ion peaks
-for i, (mz, h) in enumerate(zip(y_masses, y_ints)):
-    ax_sp.plot([mz, mz], [0, h], color=Y_COLOR, lw=2.0, zorder=3)
-    if h > 0.25:
-        ax_sp.text(mz, h + 0.025, f"y{i+1}+", ha="center", va="bottom",
-                   fontsize=7.5, color=Y_COLOR, fontweight="bold")
-
-b_patch = mpatches.Patch(color=B_COLOR, label="b-ions (matched)")
-y_patch = mpatches.Patch(color=Y_COLOR, label="y-ions (matched)")
-n_patch = mpatches.Patch(color="#AAAAAA", label="Unmatched / noise")
-ax_sp.legend(handles=[b_patch, y_patch, n_patch], fontsize=9, loc="upper right")
-ax_sp.set_xlabel("m/z", fontsize=11)
-ax_sp.set_ylabel("Relative Intensity", fontsize=11)
-ax_sp.set_title("Simulated MS2 spectrum — WNQLQAFWGTGK (z = 2)", fontsize=11)
-ax_sp.set_ylim(-0.03, 1.18)
-ax_sp.set_xlim(50, 1350)
-ax_sp.axhline(0, color="black", lw=0.8)
-ax_sp.spines["top"].set_visible(False)
-ax_sp.spines["right"].set_visible(False)
+fig_spec, ax_sp, target_ms2_df, interferer_ms2_df, interferer_peptides = (
+    plot_predicted_ms2_with_interference(
+        target_peptide="WNQLQAFWGTGK",
+        charge=2,
+        nce=20,
+        instrument="QE",
+        isolation_half_width=2.5,
+        n_interferers=10,
+        frag_charge=1,
+        merge_tol_da=0.02,
+        interferer_scale_range=(0.05, 0.80),
+        label_min_rel_intensity=0.25,
+        random_seed=17,
+    )
+)
 fig_spec.tight_layout()
 fig_to_st(
     fig_spec,
     caption=(
-        "Simulated MS2 spectrum for WNQLQAFWGTGK. Matched b-ions are shown in blue, "
+        "Predicted MS2 spectrum for WNQLQAFWGTGK. Matched b-ions are shown in blue, "
         "y-ions in red; unmatched peaks (grey) represent co-fragmented peptides or "
         "chemical noise, common in real DIA data where multiple precursors are "
         "fragmented together. Identifying a peptide from this spectrum requires matching "
