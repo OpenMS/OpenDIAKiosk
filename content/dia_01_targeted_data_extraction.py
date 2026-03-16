@@ -15,7 +15,17 @@ import scipy
 from scipy.spatial import cKDTree
 
 from src.common.common import page_setup
-from utils.dia_tutorial import mz_extraction_windows, filter_spectrum, reduce_spectra, annotate_filtered_spectra, apply_sgolay, msexperiment_to_dataframe, bin_3d_trace_df, add_binned_intensity_trace, add_binned_annotation_traces
+from utils.dia_tutorial import (
+    mz_extraction_windows,
+    filter_spectrum,
+    reduce_spectra,
+    annotate_filtered_spectra,
+    apply_sgolay,
+    msexperiment_to_dataframe,
+    bin_3d_trace_df,
+    add_binned_intensity_trace,
+    add_binned_annotation_traces,
+)
 
 page_setup()
 
@@ -48,6 +58,7 @@ def _range(df: pd.DataFrame, col: str) -> str:
         return _fmt_num(mn)
     return f"{_fmt_num(mn)} – {_fmt_num(mx)}"
 
+
 st.title("Getting Started With Targeted Data Extraction")
 st.markdown(
     """
@@ -67,7 +78,7 @@ import plotly # v{plotly.__version__}
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots 
 from scipy.spatial import cKDTree # v{scipy.__version__}
-# Method imports below are local modules part of the DIAapp
+# Method imports below are local modules part of the OpenDIAKiosk
 from utils.dia_tutorial import mz_extraction_windows, filter_spectrum, reduce_spectra, annotate_filtered_spectra, apply_sgolay, msexperiment_to_dataframe, bin_3d_trace_df, add_binned_intensity_trace, add_binned_annotation_traces""",
     language="python",
 )
@@ -85,9 +96,13 @@ if load_clicked:
         exp_df = exp.to_df(long_format=True)
 
         st.success("Data loaded successfully.")
-        st.markdown(f"Experiment summary: `MSExperiment(num_spectra={exp.getNrSpectra()}, num_chromatograms={exp.getNrChromatograms()}), ms_levels={exp.getMSLevels()}, rt_range=({exp.getMinRT()}, {exp.getMaxRT()}), mz_range=({exp.getMinMZ()}, {exp.getMaxMZ()})`")
-        st.markdown("You can see our sample experiment file has 122 spectra, and contains both MS1 and MS2 spectra as expected for DIA data. We can also see the RT range is from 130.2601 to 169.9141, which matches our expected filtered RT range of 130-170s. The m/z range is from 95.0050 to 1704.9105, which is all inclusive of both the MS1 and MS2 m/z data")
-        
+        st.markdown(
+            f"Experiment summary: `MSExperiment(num_spectra={exp.getNrSpectra()}, num_chromatograms={exp.getNrChromatograms()}), ms_levels={exp.getMSLevels()}, rt_range=({exp.getMinRT()}, {exp.getMaxRT()}), mz_range=({exp.getMinMZ()}, {exp.getMaxMZ()})`"
+        )
+        st.markdown(
+            "You can see our sample experiment file has 122 spectra, and contains both MS1 and MS2 spectra as expected for DIA data. We can also see the RT range is from 130.2601 to 169.9141, which matches our expected filtered RT range of 130-170s. The m/z range is from 95.0050 to 1704.9105, which is all inclusive of both the MS1 and MS2 m/z data"
+        )
+
         with st.expander("Code:"):
             st.code(
                 """exp = poms.MSExperiment()
@@ -128,7 +143,7 @@ print(exp_df['ms_level'].drop_duplicates())
             show_plot=False,
             backend="ms_plotly",
         )
-        
+
         fig_all = make_subplots(
             rows=1,
             cols=2,
@@ -138,23 +153,26 @@ print(exp_df['ms_level'].drop_duplicates())
             fig_all.add_trace(trace, row=1, col=1)
         for trace in fig2.data:
             fig_all.add_trace(trace, row=1, col=2)
-            
+
         # Add axis labels
         fig_all.update_xaxes(title_text="Retention Time (s)", row=1, col=1)
         fig_all.update_yaxes(title_text="m/z", row=1, col=1)
         fig_all.update_xaxes(title_text="Retention Time (s)", row=1, col=2)
         fig_all.update_yaxes(title_text="m/z", row=1, col=2)
-        
-        st.plotly_chart(fig_all, use_container_width=True)
-        
-        st.markdown(":blue[**Note:** the peakmaps are z-log scaled and binned for easier and quciker visualization.]")
 
-        
-        st.markdown("Looking at the peakmaps, we can see the MS1 spectra on the left showing the detected precursor ions with an m/z range of 660 to 700. The MS2 spectra on the right show the fragment ions generated from DIA isolation windows. We can see that the MS2 spectra are more complex and contain many fragment ions across a wide m/z range, which is typical for DIA data since multiple precursors are fragmented together. The intensity of the MS2 spectra is generally lower than the MS1 spectra, which is also expected since the signal is distributed across many fragments. In the next sections, we will apply targeted extraction to pull out specific precursor and fragment ions of interest from this complex DIA data.")
-        
+        st.plotly_chart(fig_all, use_container_width=True)
+
+        st.markdown(
+            ":blue[**Note:** the peakmaps are z-log scaled and binned for easier and quciker visualization.]"
+        )
+
+        st.markdown(
+            "Looking at the peakmaps, we can see the MS1 spectra on the left showing the detected precursor ions with an m/z range of 660 to 700. The MS2 spectra on the right show the fragment ions generated from DIA isolation windows. We can see that the MS2 spectra are more complex and contain many fragment ions across a wide m/z range, which is typical for DIA data since multiple precursors are fragmented together. The intensity of the MS2 spectra is generally lower than the MS1 spectra, which is also expected since the signal is distributed across many fragments. In the next sections, we will apply targeted extraction to pull out specific precursor and fragment ions of interest from this complex DIA data."
+        )
+
         with st.expander("Code:"):
             st.code(
-            """
+                """
 fig1 = exp_df.loc[exp_df["ms_level"] == 1].plot(
     kind="peakmap",
     x="rt",
@@ -198,12 +216,12 @@ fig_all.update_yaxes(title_text="m/z", row=1, col=1)
 fig_all.update_xaxes(title_text="Retention Time (s)", row=1, col=2)
 fig_all.update_yaxes(title_text="m/z", row=1, col=2)
             """,
-            language="python",
+                language="python",
             )
 
         st.markdown("---")
         st.subheader("Targeted Extraction")
-        
+
         st.markdown("""
                     For our small example file, we will perform targeted data extraction for the peptide **NTGIIC(UniMod:4)TIGPASR** with charge state 2. (The full mzML file was filtered for this specific example in mind based on prior analysis).
                     
@@ -221,38 +239,55 @@ fig_all.update_yaxes(title_text="m/z", row=1, col=2)
                     | 701.3941     | 701.3941| 1      | y7^1 |
                     | 861.4247     | 861.4247| 1      | y8^1 |
                     | 974.5088     | 974.5088| 1      | y9^1 |
-                    """
+                    """)
+
+        st.markdown(
+            "We use these target m/z values as coordinates and extract peaks in spectra that fall within the specified m/z tolerance window around eash target m/z. This is done for both the precursor ion in the MS1 spectra and the fragment ions in the MS2 spectra. The result is a filtered set of spectra that contain peaks matching our target precursor and fragment ions."
         )
-        
-        st.markdown("We use these target m/z values as coordinates and extract peaks in spectra that fall within the specified m/z tolerance window around eash target m/z. This is done for both the precursor ion in the MS1 spectra and the fragment ions in the MS2 spectra. The result is a filtered set of spectra that contain peaks matching our target precursor and fragment ions.")
-        
-        st.markdown(":blue[**Note:** In a real analysis scenario, you would perform additional filtering of the spectra by retention time. You would typically have prior information of where the target peptide has eluted from the liquid chromatography column (from (pseudo)DDA experiments or from predictions). These are usually expected normalized retention time values, however, for this sampled experiment file, we already filtered the full mzML file around where we expect to see the peak eluting in retention time, so there is no need for additional retention time filtering.]")
-        
+
+        st.markdown(
+            ":blue[**Note:** In a real analysis scenario, you would perform additional filtering of the spectra by retention time. You would typically have prior information of where the target peptide has eluted from the liquid chromatography column (from (pseudo)DDA experiments or from predictions). These are usually expected normalized retention time values, however, for this sampled experiment file, we already filtered the full mzML file around where we expect to see the peak eluting in retention time, so there is no need for additional retention time filtering.]"
+        )
+
         st.markdown("---")
         st.markdown("#### Filtering & Annotation")
 
-        
         precursor_mz = 680.3561
         precursor_charge = 2
-        product_mzs = [386.2034,487.2623,600.3464,701.3941,861.4247,974.5088]
-        product_charges = [1,1,1,1,1,1]
+        product_mzs = [386.2034, 487.2623, 600.3464, 701.3941, 861.4247, 974.5088]
+        product_charges = [1, 1, 1, 1, 1, 1]
         product_annotations = ["b4^1", "y5^1", "y6^1", "y7^1", "y8^1", "y9^1"]
         prec_mz_tol = 15
         prod_mz_tol = 20
-        
-        filtered_exp  = reduce_spectra(exp, float(precursor_mz), product_mzs, float(prec_mz_tol), float(prod_mz_tol))
+
+        filtered_exp = reduce_spectra(
+            exp,
+            float(precursor_mz),
+            product_mzs,
+            float(prec_mz_tol),
+            float(prod_mz_tol),
+        )
         filtered_exp.updateRanges()
-        
-        st.write(f"Filtered experiment summary: `MSExperiment(num_spectra={filtered_exp.getNrSpectra()}, num_chromatograms={filtered_exp.getNrChromatograms()}), ms_levels={filtered_exp.getMSLevels()}, rt_range=({filtered_exp.getMinRT()}, {filtered_exp.getMaxRT()}), mz_range=({filtered_exp.getMinMZ()}, {filtered_exp.getMaxMZ()})`")
-        
-        st.write("We can see that the number of spectra in the filtered experiment has reduced from 122 to 81, which means we have extracted a subset of spectra that contain peaks matching our target precursor and fragment ions. The retention time ranges remained the same because we did not apply any RT filtering, but the m/z range has narrowed to 386.1987 to 974.5265, which is  within the m/z values of our target precursor and fragment ions.")
+
+        st.write(
+            f"Filtered experiment summary: `MSExperiment(num_spectra={filtered_exp.getNrSpectra()}, num_chromatograms={filtered_exp.getNrChromatograms()}), ms_levels={filtered_exp.getMSLevels()}, rt_range=({filtered_exp.getMinRT()}, {filtered_exp.getMaxRT()}), mz_range=({filtered_exp.getMinMZ()}, {filtered_exp.getMaxMZ()})`"
+        )
+
+        st.write(
+            "We can see that the number of spectra in the filtered experiment has reduced from 122 to 81, which means we have extracted a subset of spectra that contain peaks matching our target precursor and fragment ions. The retention time ranges remained the same because we did not apply any RT filtering, but the m/z range has narrowed to 386.1987 to 974.5265, which is  within the m/z values of our target precursor and fragment ions."
+        )
 
         exp_df_targeted = filtered_exp.to_df(long_format=True)
-        
-        st.dataframe(pd.concat([exp_df_targeted.head(), exp_df_targeted.tail()]),  use_container_width=True)
-        
-        st.markdown("We can see from the resulting filtered spectra dataframe that we have spectra with both MS1 and MS2 spectra that contain peaks matching our target precursor and fragment ions. However, at this point, the spectra are not yet annotated with which peaks correspond to which target ions. The next step is to annotate the filtered spectra with the precursor and fragment ion assignments based on which target m/z they matched. We can also calculate the mass error in ppm for each matched peak to see how close the observed m/z is to the expected m/z for each target ion.")
-        
+
+        st.dataframe(
+            pd.concat([exp_df_targeted.head(), exp_df_targeted.tail()]),
+            use_container_width=True,
+        )
+
+        st.markdown(
+            "We can see from the resulting filtered spectra dataframe that we have spectra with both MS1 and MS2 spectra that contain peaks matching our target precursor and fragment ions. However, at this point, the spectra are not yet annotated with which peaks correspond to which target ions. The next step is to annotate the filtered spectra with the precursor and fragment ion assignments based on which target m/z they matched. We can also calculate the mass error in ppm for each matched peak to see how close the observed m/z is to the expected m/z for each target ion."
+        )
+
         exp_df_targeted = annotate_filtered_spectra(
             filtered_df=exp_df_targeted,
             precursor_mz=float(precursor_mz),
@@ -264,8 +299,11 @@ fig_all.update_yaxes(title_text="m/z", row=1, col=2)
             prod_mz_tol=float(prod_mz_tol),
         )
 
-        st.dataframe(pd.concat([exp_df_targeted.head(), exp_df_targeted.tail()]),  use_container_width=True)
-        
+        st.dataframe(
+            pd.concat([exp_df_targeted.head(), exp_df_targeted.tail()]),
+            use_container_width=True,
+        )
+
         with st.expander("Code:"):
             st.code(
                 """precursor_mz = 680.3561
@@ -357,9 +395,11 @@ exp_df_targeted = annotate_filtered_spectra(
         axes_cmp[3].set_ylim(axes_cmp[1].get_ylim())
         fig_cmp.tight_layout()
         st.pyplot(fig_cmp, use_container_width=True)
-        
-        st.markdown("Looking at the raw vs filtered peakmaps, we can see that the filtered spectra contain a small subset of peaks that match our target precursor and fragment ions. The raw MS1 spectra show many precursor ion signals across the m/z range of 660-700, while the filtered MS1 spectra show only the peaks around our target precursor m/z of 680.3561. Similarly, the raw MS2 spectra show many fragment ions across a wide m/z range, while the filtered MS2 spectra show only the peaks around our target fragment m/z values. This illustrates how targeted extraction can pull out specific signals of interest from multiplexed spectra in DIA data.")
-        
+
+        st.markdown(
+            "Looking at the raw vs filtered peakmaps, we can see that the filtered spectra contain a small subset of peaks that match our target precursor and fragment ions. The raw MS1 spectra show many precursor ion signals across the m/z range of 660-700, while the filtered MS1 spectra show only the peaks around our target precursor m/z of 680.3561. Similarly, the raw MS2 spectra show many fragment ions across a wide m/z range, while the filtered MS2 spectra show only the peaks around our target fragment m/z values. This illustrates how targeted extraction can pull out specific signals of interest from multiplexed spectra in DIA data."
+        )
+
         with st.expander("Code:"):
             st.code(
                 """fig_cmp, axes_cmp = plt.subplots(2, 2, figsize=(12, 8))
@@ -431,7 +471,7 @@ fig_cmp.tight_layout()""",
             exp_df_copy = exp_df.copy()
             # For fun, lets match the original exp_df with the targeted one to mark which spectra from the raw spectra are targeted
             # we need to compare the  mz, and ms_level to find the matching spectra in exp_df and mark them as targeted
-            # Vectorized nearest-neighbour style check using a KD-tree on normalized mz coordinates. 
+            # Vectorized nearest-neighbour style check using a KD-tree on normalized mz coordinates.
             exp_df_copy["is_targeted"] = False
             if not exp_df_targeted.empty:
                 mz_tol = 0.01
@@ -457,8 +497,14 @@ fig_cmp.tight_layout()""",
             progress.progress(30)
 
             # Labels for legend
-            exp_df_copy["is_targeted_label"] = np.where(exp_df_copy["is_targeted"], "Targeted", "Raw")
-            exp_df_targeted["ms_level_label"] = exp_df_targeted["ms_level"].map({1: "MS1", 2: "MS2"}).fillna(exp_df_targeted["ms_level"].astype(str))
+            exp_df_copy["is_targeted_label"] = np.where(
+                exp_df_copy["is_targeted"], "Targeted", "Raw"
+            )
+            exp_df_targeted["ms_level_label"] = (
+                exp_df_targeted["ms_level"]
+                .map({1: "MS1", 2: "MS2"})
+                .fillna(exp_df_targeted["ms_level"].astype(str))
+            )
             progress.progress(50)
 
             raw_3d = exp_df_copy.plot(
@@ -528,11 +574,15 @@ fig_cmp.tight_layout()""",
             progress.progress(100)
 
             st.plotly_chart(fig_3d, use_container_width=True)
-        
-        st.markdown("We can look at the peakmaps in 3D to visually see topological features more easily. If we look at the raw spectra, which we have color coded the corresponding targeted spectra matching out charged peptide of interest (red), we can see how small the spectral peaks are for our target peptide in comparison to the rest of the spectral signal in the data. If we look at the filtered spectra, you can more clearly see matching spectral patterns of the chromatography features (i.e. the eluting chromatographic peak in retention time). You can also tell the more intense precursor ion signal (blue) apart from the much lower intensity fragment ions (red).")
 
-        st.markdown(":orange[**Tip:** You can toggle the legend items to hide/show the targeted spectra or the MS1 vs MS2 spectra.]")
-        
+        st.markdown(
+            "We can look at the peakmaps in 3D to visually see topological features more easily. If we look at the raw spectra, which we have color coded the corresponding targeted spectra matching out charged peptide of interest (red), we can see how small the spectral peaks are for our target peptide in comparison to the rest of the spectral signal in the data. If we look at the filtered spectra, you can more clearly see matching spectral patterns of the chromatography features (i.e. the eluting chromatographic peak in retention time). You can also tell the more intense precursor ion signal (blue) apart from the much lower intensity fragment ions (red)."
+        )
+
+        st.markdown(
+            ":orange[**Tip:** You can toggle the legend items to hide/show the targeted spectra or the MS1 vs MS2 spectra.]"
+        )
+
         with st.expander("Code:"):
             st.code(
                 """exp_df_copy = exp_df.copy()
@@ -634,7 +684,7 @@ fig_3d.layout.annotations[1].x = 0.75
 
         st.markdown("---")
         st.markdown("#### Extracted Ion Chromatograms")
-        
+
         chrom_fig = exp_df_targeted.plot(
             kind="chromatogram",
             x="rt",
@@ -646,32 +696,32 @@ fig_3d.layout.annotations[1].x = 0.75
             backend="ms_plotly",
             show_plot=False,
         )
-        
-        group_cols=['ms_level', 'annotation', 'rt']
-        integrate_col = 'intensity'
-        smoothed_chrom_fig = exp_df_targeted.apply(
+
+        group_cols = ["ms_level", "annotation", "rt"]
+        integrate_col = "intensity"
+        smoothed_chrom_fig = (
+            exp_df_targeted.apply(
                 lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
-            ) \
-        .groupby(group_cols)[integrate_col] \
-        .sum() \
-        .reset_index() \
-        .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] \
-        .apply(apply_sgolay, 
-                window_length=9,
-                polyorder=3) \
-        .reset_index(drop=True) \
-        .plot(
-            kind="chromatogram",
-            x="rt",
-            y="smoothed_int",
-            by="annotation",
-            title="Smoothed Chromatogram",
-            aggregate_duplicates=False,
-            legend_config=dict(title="Transition"),
-            backend="ms_plotly",
-            show_plot=False,
+            )
+            .groupby(group_cols)[integrate_col]
+            .sum()
+            .reset_index()
+            .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+            .apply(apply_sgolay, window_length=9, polyorder=3)
+            .reset_index(drop=True)
+            .plot(
+                kind="chromatogram",
+                x="rt",
+                y="smoothed_int",
+                by="annotation",
+                title="Smoothed Chromatogram",
+                aggregate_duplicates=False,
+                legend_config=dict(title="Transition"),
+                backend="ms_plotly",
+                show_plot=False,
+            )
         )
-        
+
         chrom_subfig = make_subplots(
             rows=1,
             cols=2,
@@ -680,8 +730,14 @@ fig_3d.layout.annotations[1].x = 0.75
         # Pair traces from the raw and smoothed chromatogram figures so that
         # legend selection is shared. We assign the same `name` and `legendgroup`
         # to corresponding traces and only show the legend entry once (left panel).
-        for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig.data, smoothed_chrom_fig.data)):
-            name = getattr(t_raw, "name", None) or getattr(t_smooth, "name", None) or f"trace_{i}"
+        for i, (t_raw, t_smooth) in enumerate(
+            zip(chrom_fig.data, smoothed_chrom_fig.data)
+        ):
+            name = (
+                getattr(t_raw, "name", None)
+                or getattr(t_smooth, "name", None)
+                or f"trace_{i}"
+            )
             t_raw.name = name
             t_raw.legendgroup = name
             t_raw.showlegend = True
@@ -705,10 +761,14 @@ fig_3d.layout.annotations[1].x = 0.75
             margin=dict(l=20, r=20, t=60, b=20),
         )
         st.plotly_chart(chrom_subfig, use_container_width=True)
-        
-        st.markdown("The chromatograms show the intensity of the precursor and fragment ions over retention time. The raw chromatogram on the left shows the original signal, which can be a little noisy. The smoothed chromatogram on the right applies a Savitzky-Golay filter to reduce noise and make it easier to see the elution profiles of the ions, as well as making downstream peak-picking more stable.")
-        st.markdown(":orange[**Tip:** You can toggle the legend items to show/hide specific transitions and see how they co-elute, which is important for confirming the presence of the target peptide in DIA data.]")
-         
+
+        st.markdown(
+            "The chromatograms show the intensity of the precursor and fragment ions over retention time. The raw chromatogram on the left shows the original signal, which can be a little noisy. The smoothed chromatogram on the right applies a Savitzky-Golay filter to reduce noise and make it easier to see the elution profiles of the ions, as well as making downstream peak-picking more stable."
+        )
+        st.markdown(
+            ":orange[**Tip:** You can toggle the legend items to show/hide specific transitions and see how they co-elute, which is important for confirming the presence of the target peptide in DIA data.]"
+        )
+
         with st.expander("Code:"):
             st.code(
                 """chrom_fig = exp_df_targeted.plot(
@@ -783,14 +843,14 @@ chrom_subfig.update_layout(
                 """,
                 language="python",
             )
-        
+
         st.markdown("---")
         st.subheader("What about the Ion Mobility Dimension?")
-        
+
         ion_df = msexperiment_to_dataframe(exp)
         ms1_ion_df = ion_df.loc[ion_df["ms_level"] == 1]
         ms2_ion_df = ion_df.loc[ion_df["ms_level"] == 2]
-        
+
         st.write("MS1 Spectra")
         ms1_table = (
             "| Metric | Range |\n"
@@ -811,9 +871,13 @@ chrom_subfig.update_layout(
         )
         st.markdown(ms2_table)
 
-        st.markdown("""This example DIA dataset was acquired on a timsTOF instrument, which means there is an additional ion mobility dimension in the data. Our sampled dataset contains MS1 spectra containing inversed ion mobility in the range 0.60199 to 1.59998, and MS2 spectra contained inversed ion mobility in the range 0.89033 to 1.10950.""")
-        
-        with st.spinner("Generating 3D ion-mobility peakmaps — this may take a moment..."):
+        st.markdown(
+            """This example DIA dataset was acquired on a timsTOF instrument, which means there is an additional ion mobility dimension in the data. Our sampled dataset contains MS1 spectra containing inversed ion mobility in the range 0.60199 to 1.59998, and MS2 spectra contained inversed ion mobility in the range 0.89033 to 1.10950."""
+        )
+
+        with st.spinner(
+            "Generating 3D ion-mobility peakmaps — this may take a moment..."
+        ):
             progress = st.progress(0)
 
             ms1_binned = bin_3d_trace_df(
@@ -860,8 +924,12 @@ chrom_subfig.update_layout(
             else:
                 cmin, cmax = 0.0, 1.0
 
-            add_binned_intensity_trace(fig, ms1_binned, row=1, col=1, name="MS1", cmin=cmin, cmax=cmax)
-            add_binned_intensity_trace(fig, ms2_binned, row=1, col=2, name="MS2", cmin=cmin, cmax=cmax)
+            add_binned_intensity_trace(
+                fig, ms1_binned, row=1, col=1, name="MS1", cmin=cmin, cmax=cmax
+            )
+            add_binned_intensity_trace(
+                fig, ms2_binned, row=1, col=2, name="MS2", cmin=cmin, cmax=cmax
+            )
 
             progress.progress(90)
 
@@ -882,9 +950,11 @@ chrom_subfig.update_layout(
 
             progress.progress(100)
             st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("""Looking at the spectra in 3D with the ion mobility dimension, we can see just how much more complicated the data looks like. It just looks like blobs of color""")
-        
+
+        st.markdown(
+            """Looking at the spectra in 3D with the ion mobility dimension, we can see just how much more complicated the data looks like. It just looks like blobs of color"""
+        )
+
         with st.expander("Code:"):
             st.code(
                 """ion_df = msexperiment_to_dataframe(exp)
@@ -952,16 +1022,25 @@ fig.update_layout(
 """,
                 language="python",
             )
-                
-        
+
         st.markdown("---")
         st.markdown("#### Filtering Spectra Including Ion Mobility")
-                
-        st.markdown("""Like m/z and retention time filtering, we can further filter the spectra by ion mobility as well. This means we need to have another coordinate to extract and filter around a targeted ion mobility value. For our target peptide of interest, from prior analysis, the targeted ion mobility value is **0.96756938061**. We can include this target ion mobility in our filtering criteria using a tolerance window of 0.08.""")
-        
+
+        st.markdown(
+            """Like m/z and retention time filtering, we can further filter the spectra by ion mobility as well. This means we need to have another coordinate to extract and filter around a targeted ion mobility value. For our target peptide of interest, from prior analysis, the targeted ion mobility value is **0.96756938061**. We can include this target ion mobility in our filtering criteria using a tolerance window of 0.08."""
+        )
+
         target_im = 0.96756938061
-        im_tol = 0.08        
-        filtered_exp_with_im  = reduce_spectra(exp, float(precursor_mz), product_mzs, float(prec_mz_tol), float(prod_mz_tol), float(target_im), float(im_tol))
+        im_tol = 0.08
+        filtered_exp_with_im = reduce_spectra(
+            exp,
+            float(precursor_mz),
+            product_mzs,
+            float(prec_mz_tol),
+            float(prod_mz_tol),
+            float(target_im),
+            float(im_tol),
+        )
         filtered_exp_with_im.updateRanges()
         exp_df_targeted_with_im = msexperiment_to_dataframe(filtered_exp_with_im)
         exp_df_targeted_with_im = annotate_filtered_spectra(
@@ -974,8 +1053,10 @@ fig.update_layout(
             prec_mz_tol=float(prec_mz_tol),
             prod_mz_tol=float(prod_mz_tol),
         )
-        
-        with st.spinner("Generating 3D ion-mobility peakmaps — this may take a moment..."):
+
+        with st.spinner(
+            "Generating 3D ion-mobility peakmaps — this may take a moment..."
+        ):
             progress = st.progress(0)
 
             # raw panel
@@ -1090,9 +1171,11 @@ fig.update_layout(
 
             progress.progress(100)
             st.plotly_chart(fig, use_container_width=True)
-            
-        st.markdown("From the filtered spectra, we get a much clearer picture of the spectral features corresponding to our target peptide, and how they are distributed in the ion mobility dimension. We can see that the targeted spectra (colored by annotation) cluster around the target ion mobility value, which is consistent with our expectation. This ion mobility filtering can help to further reduce interference from co-eluting peptides in DIA data, and improve the quality of extracted chromatograms and downstream quantification.") 
-        
+
+        st.markdown(
+            "From the filtered spectra, we get a much clearer picture of the spectral features corresponding to our target peptide, and how they are distributed in the ion mobility dimension. We can see that the targeted spectra (colored by annotation) cluster around the target ion mobility value, which is consistent with our expectation. This ion mobility filtering can help to further reduce interference from co-eluting peptides in DIA data, and improve the quality of extracted chromatograms and downstream quantification."
+        )
+
         with st.expander("Code:"):
             st.code(
                 """target_im = 0.96756938061
@@ -1219,7 +1302,7 @@ fig.update_layout(
                 """,
                 language="python",
             )
-        
+
         st.markdown("---")
         st.markdown("#### Extracted Ion Chromatogram")
 
@@ -1236,22 +1319,29 @@ fig.update_layout(
             show_plot=False,
         )
 
-        group_cols=['ms_level', 'annotation', 'rt']
-        integrate_col = 'intensity'
-        smoothed_chrom_fig = exp_df_targeted.apply(
+        group_cols = ["ms_level", "annotation", "rt"]
+        integrate_col = "intensity"
+        smoothed_chrom_fig = (
+            exp_df_targeted.apply(
                 lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
-            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
-                window_length=9,
-                polyorder=3) .reset_index(drop=True) .plot(
-            kind="chromatogram",
-            x="rt",
-            y="smoothed_int",
-            by="annotation",
-            title="Smoothed Chromatogram",
-            aggregate_duplicates=False,
-            legend_config=dict(title="Transition"),
-            backend="ms_plotly",
-            show_plot=False,
+            )
+            .groupby(group_cols)[integrate_col]
+            .sum()
+            .reset_index()
+            .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+            .apply(apply_sgolay, window_length=9, polyorder=3)
+            .reset_index(drop=True)
+            .plot(
+                kind="chromatogram",
+                x="rt",
+                y="smoothed_int",
+                by="annotation",
+                title="Smoothed Chromatogram",
+                aggregate_duplicates=False,
+                legend_config=dict(title="Transition"),
+                backend="ms_plotly",
+                show_plot=False,
+            )
         )
 
         # Extraction with ion mobility filtering
@@ -1267,30 +1357,44 @@ fig.update_layout(
             show_plot=False,
         )
 
-        smoothed_chrom_fig_im  = exp_df_targeted_with_im.apply(
+        smoothed_chrom_fig_im = (
+            exp_df_targeted_with_im.apply(
                 lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
-            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay, 
-                window_length=9,
-                polyorder=3) .reset_index(drop=True) .plot(
-            kind="chromatogram",
-            x="rt",
-            y="smoothed_int",
-            by="annotation",
-            title="Smoothed Chromatogram",
-            aggregate_duplicates=False,
-            legend_config=dict(title="Transition"),
-            backend="ms_plotly",
-            show_plot=False,
+            )
+            .groupby(group_cols)[integrate_col]
+            .sum()
+            .reset_index()
+            .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+            .apply(apply_sgolay, window_length=9, polyorder=3)
+            .reset_index(drop=True)
+            .plot(
+                kind="chromatogram",
+                x="rt",
+                y="smoothed_int",
+                by="annotation",
+                title="Smoothed Chromatogram",
+                aggregate_duplicates=False,
+                legend_config=dict(title="Transition"),
+                backend="ms_plotly",
+                show_plot=False,
+            )
         )
 
         chrom_subfig = make_subplots(
             rows=2,
             cols=2,
-            subplot_titles=["Raw Chromatogram (no IM)", "Smoothed Chromatogram (no IM)", "Raw Chromatogram (with IM)", "Smoothed Chromatogram (with IM)"],
+            subplot_titles=[
+                "Raw Chromatogram (no IM)",
+                "Smoothed Chromatogram (no IM)",
+                "Raw Chromatogram (with IM)",
+                "Smoothed Chromatogram (with IM)",
+            ],
         )
-        
+
         # Add traces to subfig and share legend groups for toggling
-        for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig.data, smoothed_chrom_fig.data)):
+        for i, (t_raw, t_smooth) in enumerate(
+            zip(chrom_fig.data, smoothed_chrom_fig.data)
+        ):
             name = getattr(t_raw, "name", None)
             if name is not None:
                 t_raw.name = name
@@ -1302,7 +1406,9 @@ fig.update_layout(
                 t_smooth.showlegend = False
                 chrom_subfig.add_trace(t_raw, row=1, col=1)
                 chrom_subfig.add_trace(t_smooth, row=1, col=2)
-        for i, (t_raw, t_smooth) in enumerate(zip(chrom_fig_im.data, smoothed_chrom_fig_im.data)):
+        for i, (t_raw, t_smooth) in enumerate(
+            zip(chrom_fig_im.data, smoothed_chrom_fig_im.data)
+        ):
             name = getattr(t_raw, "name", None)
             if name is not None:
                 t_raw.name = name
@@ -1314,13 +1420,12 @@ fig.update_layout(
                 t_smooth.showlegend = False
                 chrom_subfig.add_trace(t_raw, row=2, col=1)
                 chrom_subfig.add_trace(t_smooth, row=2, col=2)
-        chrom_subfig.update_layout(
-            width=1200,
-            height=800
-        )
+        chrom_subfig.update_layout(width=1200, height=800)
         st.plotly_chart(chrom_subfig, use_container_width=True)
 
-        st.markdown("For this small sampled dataset, the impact is small, but you can still see that when utilizing the ion mobility dimension to filter the spectra for our peptide of interest, we reduce some of the noise (most noticably in the MS1) of the extracted spectra, resulting in less noisy extracted ion chromatograms.")
+        st.markdown(
+            "For this small sampled dataset, the impact is small, but you can still see that when utilizing the ion mobility dimension to filter the spectra for our peptide of interest, we reduce some of the noise (most noticably in the MS1) of the extracted spectra, resulting in less noisy extracted ion chromatograms."
+        )
 
         with st.expander("Code:"):
             st.code(
@@ -1420,9 +1525,9 @@ chrom_subfig.update_layout(
     height=800
 )
             """,
-            language="python",
-            )    
-                
+                language="python",
+            )
+
         st.markdown("---")
         st.markdown("#### Extracted Ion Mobilogram")
 
@@ -1438,22 +1543,29 @@ chrom_subfig.update_layout(
             show_plot=False,
         )
 
-        group_cols=['ms_level', 'annotation', 'ion_mobility']
-        integrate_col = 'intensity'
-        smoothed_ombi_fig = exp_df_targeted_with_im.apply(
+        group_cols = ["ms_level", "annotation", "ion_mobility"]
+        integrate_col = "intensity"
+        smoothed_ombi_fig = (
+            exp_df_targeted_with_im.apply(
                 lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
-            ) .groupby(group_cols)[integrate_col] .sum() .reset_index() .groupby(['annotation', 'ms_level'])[group_cols + [integrate_col]] .apply(apply_sgolay,                                                                           along_col="ion_mobility",
-                window_length=9,
-                polyorder=3) .reset_index(drop=True) .plot(
-            kind="mobilogram",
-            x="ion_mobility",
-            y="smoothed_int",
-            by="annotation",
-            title="Smoothed Mobilogram",
-            aggregate_duplicates=False,
-            legend_config=dict(title="Transition"),
-            backend="ms_plotly",
-            show_plot=False,
+            )
+            .groupby(group_cols)[integrate_col]
+            .sum()
+            .reset_index()
+            .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+            .apply(apply_sgolay, along_col="ion_mobility", window_length=9, polyorder=3)
+            .reset_index(drop=True)
+            .plot(
+                kind="mobilogram",
+                x="ion_mobility",
+                y="smoothed_int",
+                by="annotation",
+                title="Smoothed Mobilogram",
+                aggregate_duplicates=False,
+                legend_config=dict(title="Transition"),
+                backend="ms_plotly",
+                show_plot=False,
+            )
         )
 
         mobi_subfig = make_subplots(
@@ -1463,7 +1575,9 @@ chrom_subfig.update_layout(
         )
 
         # Add traces to subfig and share legend groups for toggling
-        for i, (t_raw, t_smooth) in enumerate(zip(mobi_fig.data, smoothed_ombi_fig.data)):
+        for i, (t_raw, t_smooth) in enumerate(
+            zip(mobi_fig.data, smoothed_ombi_fig.data)
+        ):
             name = getattr(t_raw, "name", None)
             if name is not None:
                 t_raw.name = name
@@ -1475,13 +1589,12 @@ chrom_subfig.update_layout(
                 t_smooth.showlegend = False
                 mobi_subfig.add_trace(t_raw, row=1, col=1)
                 mobi_subfig.add_trace(t_smooth, row=1, col=2)
-        mobi_subfig.update_layout(
-            width=1200,
-            height=800
-        )
+        mobi_subfig.update_layout(width=1200, height=800)
         st.plotly_chart(mobi_subfig, use_container_width=True)
 
-        st.markdown("The mobilogram shows the intensity of the ions over the ion mobility dimension. Similar to the chromatogram, we can see that the smoothed mobilogram on the right reduces noise and makes it easier to see the ion mobility profiles of the ions corresponding to our target peptide.")
+        st.markdown(
+            "The mobilogram shows the intensity of the ions over the ion mobility dimension. Similar to the chromatogram, we can see that the smoothed mobilogram on the right reduces noise and makes it easier to see the ion mobility profiles of the ions corresponding to our target peptide."
+        )
 
         with st.expander("Code:"):
             st.code(
@@ -1539,12 +1652,12 @@ mobi_subfig.update_layout(
     height=800
 )
             """,
-            language="python",
-            )  
-        
+                language="python",
+            )
+
     except Exception as e:
         st.error(f"Failed to run DIA tutorial workflow: {e}")
-        
+
 st.markdown("---")
 
 st.subheader("Functions Used in This Tutorial")

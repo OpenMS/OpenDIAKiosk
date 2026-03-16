@@ -1,8 +1,8 @@
 {
-    "app-name": "DIAapp",
+    "app-name": "OpenDIAKiosk",
     "github-user": "OpenMS",
     "version": "1.1.1",
-    "repository-name": "DIAapp",
+    "repository-name": "OpenDIAKiosk",
     "analytics": {
         "google-analytics": {
             "enabled": false,
