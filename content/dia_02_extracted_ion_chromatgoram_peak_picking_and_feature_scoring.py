@@ -19,6 +19,7 @@ from utils.dia_tutorial import (
 )
 from utils.dia_peak_picking import (
     smooth_chromatogram,
+    create_concensus_chromatogram,
     perform_xic_peak_picking,
     merge_transition_peak_boundaries_to_consensus,
 )
@@ -471,4 +472,159 @@ if (
                 In the plot above, we show the smoothed XICs for each transition with the consensus peak boundaries plotted as vertical solid lines. 
                 
                 But why go through all the trouble of doing individual transition-level peak picking and then merging into consensus features? Why not just perform peak picking on the summed XICs across all transitions for a precursor? Let's try that next.
+                """)
+
+                concensus_raw_chrom_df = create_concensus_chromatogram(exp_df_targeted)
+
+                # perform peak picking
+                picker = poms.PeakPickerChromatogram()
+                picker_params = picker.getDefaults()
+                picker_params.setValue("method", "legacy")
+                picker.setParameters(picker_params)
+
+                concensus_raw_pp_df = perform_xic_peak_picking(
+                    concensus_raw_chrom_df, intensity_col="intensity", picker=picker
+                )
+                concensus_raw_chrom_df[["apexIntensity"]] = concensus_raw_chrom_df[
+                    "intensity"
+                ].max()
+
+                concensus_raw_chrom_plot = concensus_raw_chrom_df.plot(
+                    kind="chromatogram",
+                    x="rt",
+                    y="intensity",
+                    title=f"Concensus Chromatogram with Peak Picking - {peptide} / {precursor_charge}+",
+                    aggregate_duplicates=False,
+                    annotation_data=concensus_raw_pp_df,
+                    legend_config=dict(title="Transition"),
+                    backend="ms_plotly",
+                    show_plot=False,
+                )
+
+                # lets try with a smoothed concensus chromatogram as well
+                group_cols = ["ms_level", "annotation", "rt"]
+                integrate_col = "intensity"
+
+                # compute smoothed dataframe (used for both combined and per-transition plots)
+                exp_df_targeted = st.session_state.exp_df_targeted
+                smoothed_df = (
+                    exp_df_targeted.apply(
+                        lambda x: x.fillna(0)
+                        if x.dtype.kind in "biufc"
+                        else x.fillna(".")
+                    )
+                    .groupby(group_cols)[integrate_col]
+                    .sum()
+                    .reset_index()
+                    .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+                    .apply(apply_sgolay, window_length=9, polyorder=3)
+                    .reset_index(drop=True)
+                )
+
+                picker = poms.PeakPickerChromatogram()
+                picker_params = picker.getDefaults()
+                picker_params.setValue("method", "corrected")
+                picker_params.setValue("sgolay_frame_length", 9)
+                picker_params.setValue("sgolay_polynomial_order", 3)
+                picker.setParameters(picker_params)
+
+                smoothed_concensus_chrom_df = create_concensus_chromatogram(smoothed_df)
+                smoothed_concensus_pp_df = perform_xic_peak_picking(
+                    smoothed_concensus_chrom_df,
+                    intensity_col="intensity",
+                    picker=picker,
+                )
+                smoothed_concensus_chrom_df[["apexIntensity"]] = (
+                    smoothed_concensus_chrom_df["intensity"].max()
+                )
+
+                smoothed_concensus_chrom_plot = smoothed_concensus_chrom_df.plot(
+                    kind="chromatogram",
+                    x="rt",
+                    y="intensity",
+                    title=f"Smoothed Concensus Chromatogram with Peak Picking - {peptide} / {precursor_charge}+",
+                    aggregate_duplicates=False,
+                    annotation_data=smoothed_concensus_pp_df,
+                    legend_config=dict(title="Transition"),
+                    backend="ms_plotly",
+                    show_plot=False,
+                )
+
+                # Lets make a combined plot with both the raw and smoothed concensus chromatograms and their respective picked peaks
+                combined_concensus_plot = make_subplots(
+                    rows=2,
+                    cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.1,
+                    subplot_titles=[
+                        "Raw Concensus Chromatogram with Peak Picking",
+                        "Smoothed Concensus Chromatogram with Peak Picking",
+                    ],
+                )
+                combined_concensus_plot.add_trace(
+                    go.Scatter(
+                        x=concensus_raw_chrom_df["rt"],
+                        y=concensus_raw_chrom_df["intensity"],
+                        mode="lines",
+                        name="Raw Concensus Chromatogram",
+                    ),
+                    row=1,
+                    col=1,
+                )
+                for _, peak in concensus_raw_pp_df.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="red", width=1, dash="dash"),
+                        row=1,
+                        col=1,
+                        annotation_text=f"FWHM: {peak['FWHM']:.2f}s | Int: {peak['integrated_intensity_fda']:.0f}",
+                        annotation_position="top left",
+                    )
+
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="red", width=1, dash="dash"),
+                        row=1,
+                        col=1,
+                    )
+                combined_concensus_plot.add_trace(
+                    go.Scatter(
+                        x=smoothed_concensus_chrom_df["rt"],
+                        y=smoothed_concensus_chrom_df["intensity"],
+                        mode="lines",
+                        name="Smoothed Concensus Chromatogram",
+                    ),
+                    row=2,
+                    col=1,
+                )
+                for _, peak in smoothed_concensus_pp_df.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="blue", width=1, dash="dash"),
+                        row=2,
+                        col=1,
+                        annotation_text=f"FWHM: {peak['FWHM']:.2f}s | Int: {peak['integrated_intensity_fda']:.0f}",
+                        annotation_position="top left",
+                    )
+
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="blue", width=1, dash="dash"),
+                        row=2,
+                        col=1,
+                    )
+                combined_concensus_plot.update_yaxes(
+                    title_text="Intensity", row=1, col=1
+                )
+                combined_concensus_plot.update_yaxes(
+                    title_text="Intensity", row=2, col=1
+                )
+                combined_concensus_plot.update_layout(
+                    height=800,
+                    title_text="Comparison of Raw vs Smoothed Concensus Chromatograms with Peak Picking",
+                )
+                st.plotly_chart(combined_concensus_plot, use_container_width=True)
+
+                st.markdown("""
+                From the plots above, we can see that performing peak picking on the summed XICs across all transitions (concensus chromatogram) can yield different peak boundaries compared to performing peak picking on the individual transitions and then merging into consensus features. This is because the peak picking algorithm may identify different peaks and boundaries when applied to the summed signal compared to the individual signals, especially if there is variability in the peak shapes and retention times across transitions. Additionally, the choice of smoothing method and parameters can also impact the detected peaks and their boundaries. It's important to carefully consider these factors when designing a DIA data processing pipeline and to validate the results using appropriate metrics and visualizations.
                 """)
