@@ -677,3 +677,224 @@ col_rtm2.metric(
     f"{var_norm_rt:.3f}",
     help="Smaller = closer to predicted RT. 0 = exact match.",
 )
+
+# ----------------------------------
+# Spectrum Scores
+
+st.markdown("---")
+st.subheader("Spectrum Scores")
+
+st.markdown(
+    """
+Single-spectrum scores use the **MS2 spectrum at the peak apex** rather than
+the full XIC.  They assess the spectrum against theoretical.
+
+**Key scores:**
+
+| Score | What it measures |
+|---|---|
+| `VAR_ISOTOPE_CORRELATION_SCORE` | Pearson corr. of each fragment's isotope envelope vs theoretical averagine distribution |
+| `VAR_ISOTOPE_OVERLAP_SCORE` | Evidence that the monoisotopic peak is shifted (interference from heavier species) |
+| `VAR_MASSDEV_SCORE` | Mean ppm deviation of observed fragment m/z from theoretical |
+| `VAR_BSERIES_SCORE` | Count of b-ions detected in the spectrum above intensity threshold |
+| `VAR_YSERIES_SCORE` | Count of y-ions detected in the spectrum above intensity threshold |
+| `VAR_MANHATTAN_SCORE` | Manhattan distance between observed and theoretical isotope distributions |
+| `VAR_DOTPROD_SCORE` | Dot product between observed and theoretical isotope distributions |
+"""
+)
+
+st.markdown("#### Spectral Quality at Peak Apex")
+
+col_spec1, col_spec2 = st.columns(2)
+with col_spec1:
+    mass_error_ppm = st.slider(
+        "Mass accuracy (ppm error)",
+        min_value=0,
+        max_value=50,
+        value=5,
+        step=1,
+        help="Higher = worse mass accuracy → higher VAR_MASSDEV_SCORE.",
+    )
+    isotope_quality = st.slider(
+        "Isotope pattern match (%)",
+        min_value=20,
+        max_value=100,
+        value=85,
+        step=5,
+        help="How closely the observed isotope envelope matches averagine. "
+        "100% = perfect theoretical match.",
+    )
+with col_spec2:
+    n_b_ions = st.slider(
+        "b-ions detected in apex spectrum",
+        min_value=0,
+        max_value=8,
+        value=4,
+        step=1,
+    )
+    n_y_ions = st.slider(
+        "y-ions detected in apex spectrum",
+        min_value=0,
+        max_value=10,
+        value=6,
+        step=1,
+    )
+
+# Simulate isotope envelopes
+rng_iso = np.random.default_rng(55)
+n_isotopes = 5
+theoretical_iso = np.array([0.55, 0.30, 0.11, 0.03, 0.01])  # averagine
+obs_iso = theoretical_iso.copy()
+noise_iso = rng_iso.normal(0, (100 - isotope_quality) / 100.0 * 0.15, n_isotopes)
+obs_iso = np.maximum(obs_iso + noise_iso, 0)
+obs_iso /= obs_iso.sum()
+
+# Isotope correlation score (Pearson)
+iso_corr = pearson_corr(theoretical_iso, obs_iso)
+
+# Mass deviation score (simulated)
+mass_dev_score = mass_error_ppm / 10.0  # scaled
+
+fig_iso, axes_iso = plt.subplots(1, 2, figsize=(12, 4.0))
+
+#  Left: isotope pattern
+iso_labels = ["M", "M+1", "M+2", "M+3", "M+4"]
+x_iso = np.arange(n_isotopes)
+axes_iso[0].bar(
+    x_iso - 0.2,
+    theoretical_iso,
+    0.38,
+    color="#2266CC",
+    alpha=0.80,
+    label="Theoretical (averagine)",
+    edgecolor="white",
+)
+axes_iso[0].bar(
+    x_iso + 0.2,
+    obs_iso,
+    0.38,
+    color="#CC2222",
+    alpha=0.80,
+    label="Observed",
+    edgecolor="white",
+)
+axes_iso[0].set_xticks(x_iso)
+axes_iso[0].set_xticklabels(iso_labels, fontsize=10)
+axes_iso[0].set_ylabel("Relative Intensity", fontsize=10)
+axes_iso[0].set_title("Isotope Pattern: Theoretical vs Observed", fontsize=10.5)
+axes_iso[0].legend(fontsize=9)
+axes_iso[0].spines["top"].set_visible(False)
+axes_iso[0].spines["right"].set_visible(False)
+
+#  Right: apex spectrum with b/y annotations
+mz_axis = np.linspace(100, 1300, 800)
+spectrum = np.zeros_like(mz_axis)
+
+# Add simulated fragment peaks
+AA_MASSES = [
+    57.0,
+    71.0,
+    99.1,
+    113.1,
+    128.1,
+    147.1,
+    156.1,
+    163.1,
+    128.1,
+    114.0,
+    101.0,
+    131.0,
+]
+b_mzs = [
+    200
+    + i * 110
+    + rng_iso.normal(0, mass_error_ppm * 0.01 * (200 + i * 110) / 1e6 * 1e6)
+    for i in range(min(n_b_ions, 8))
+]
+y_mzs = [
+    250
+    + i * 115
+    + rng_iso.normal(0, mass_error_ppm * 0.01 * (250 + i * 115) / 1e6 * 1e6)
+    for i in range(min(n_y_ions, 10))
+]
+
+for mz in b_mzs:
+    idx = np.argmin(np.abs(mz_axis - mz))
+    h = rng_iso.uniform(0.3, 1.0)
+    axes_iso[1].plot([mz, mz], [0, h], color="#2266CC", lw=2.0, zorder=3)
+    if h > 0.55:
+        axes_iso[1].text(
+            mz,
+            h + 0.02,
+            f"b{b_mzs.index(mz) + 1}",
+            ha="center",
+            fontsize=7.5,
+            color="#2266CC",
+            fontweight="bold",
+        )
+
+for mz in y_mzs:
+    h = rng_iso.uniform(0.25, 0.95)
+    axes_iso[1].plot([mz, mz], [0, h], color="#CC2222", lw=2.0, zorder=3)
+    if h > 0.50:
+        axes_iso[1].text(
+            mz,
+            h + 0.02,
+            f"y{y_mzs.index(mz) + 1}",
+            ha="center",
+            fontsize=7.5,
+            color="#CC2222",
+            fontweight="bold",
+        )
+
+# Noise
+for _ in range(20):
+    nmz = rng_iso.uniform(120, 1250)
+    nh = rng_iso.exponential(0.08)
+    axes_iso[1].plot([nmz, nmz], [0, nh], color="#AAAAAA", lw=1.0, zorder=1)
+
+axes_iso[1].set_xlabel("m/z (Da)", fontsize=10)
+axes_iso[1].set_ylabel("Relative Intensity", fontsize=10)
+axes_iso[1].set_title(
+    f"Apex MS2 Spectrum (mass error ±{mass_error_ppm} ppm)", fontsize=10.5
+)
+axes_iso[1].set_ylim(-0.03, 1.20)
+axes_iso[1].axhline(0, color="black", lw=0.7)
+
+b_patch = mpatches.Patch(color="#2266CC", label=f"b-ions ({n_b_ions} detected)")
+y_patch = mpatches.Patch(color="#CC2222", label=f"y-ions ({n_y_ions} detected)")
+n_patch = mpatches.Patch(color="#AAAAAA", label="Noise / unmatched")
+axes_iso[1].legend(handles=[b_patch, y_patch, n_patch], fontsize=8)
+axes_iso[1].spines["top"].set_visible(False)
+axes_iso[1].spines["right"].set_visible(False)
+
+fig_iso.tight_layout()
+fig_to_st(fig_iso)
+
+c1s, c2s, c3s, c4s, c5s = st.columns(5)
+c1s.metric(
+    "VAR_ISOTOPE_CORRELATION",
+    f"{iso_corr:.3f}",
+    help="Pearson corr. between observed and theoretical isotope envelope. 1 = perfect.",
+)
+c2s.metric(
+    "VAR_MASSDEV_SCORE (ppm)",
+    f"{mass_error_ppm}",
+    help="Mean ppm deviation of fragment ion m/z. 0 = perfect.",
+)
+c3s.metric(
+    "VAR_BSERIES_SCORE",
+    f"{n_b_ions}",
+    help="Number of b-ions detected above intensity threshold.",
+)
+c4s.metric(
+    "VAR_YSERIES_SCORE",
+    f"{n_y_ions}",
+    help="Number of y-ions detected above intensity threshold.",
+)
+iso_manhattan = float(np.sum(np.abs(obs_iso - theoretical_iso)))
+c5s.metric(
+    "VAR_MANHATTAN_SCORE",
+    f"{iso_manhattan:.3f}",
+    help="Manhattan distance between observed and theoretical isotope distributions.",
+)
