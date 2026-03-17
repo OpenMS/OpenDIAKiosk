@@ -474,6 +474,8 @@ if (
                 But why go through all the trouble of doing individual transition-level peak picking and then merging into consensus features? Why not just perform peak picking on the summed XICs across all transitions for a precursor? Let's try that next.
                 """)
 
+                # =========================================
+                #   Raw concensus with raw peak picking
                 concensus_raw_chrom_df = create_concensus_chromatogram(exp_df_targeted)
 
                 # perform peak picking
@@ -501,11 +503,37 @@ if (
                     show_plot=False,
                 )
 
-                # lets try with a smoothed concensus chromatogram as well
+                # =========================================
+                #   Raw concensus with smoothed peak picking
+                picker = poms.PeakPickerChromatogram()
+                picker_params = picker.getDefaults()
+                picker_params.setValue("method", "corrected")
+                picker_params.setValue("sgolay_frame_length", 9)
+                picker_params.setValue("sgolay_polynomial_order", 3)
+                picker.setParameters(picker_params)
+                concensus_raw_pp_df_smooth = perform_xic_peak_picking(
+                    concensus_raw_chrom_df, intensity_col="intensity", picker=picker
+                )
+                concensus_raw_chrom_df[["apexIntensity"]] = concensus_raw_chrom_df[
+                    "intensity"
+                ].max()
+                concensus_raw_chrom_plot_smooth = concensus_raw_chrom_df.plot(
+                    kind="chromatogram",
+                    x="rt",
+                    y="intensity",
+                    title=f"Concensus Chromatogram with Smoothed Peak Picking - {peptide} / {precursor_charge}+",
+                    aggregate_duplicates=False,
+                    annotation_data=concensus_raw_pp_df_smooth,
+                    legend_config=dict(title="Transition"),
+                    backend="ms_plotly",
+                    show_plot=False,
+                )
+
+                # =========================================
+                #   smoothed concensus with smoothed peak picking
                 group_cols = ["ms_level", "annotation", "rt"]
                 integrate_col = "intensity"
 
-                # compute smoothed dataframe (used for both combined and per-transition plots)
                 exp_df_targeted = st.session_state.exp_df_targeted
                 smoothed_df = (
                     exp_df_targeted.apply(
@@ -528,7 +556,11 @@ if (
                 picker_params.setValue("sgolay_polynomial_order", 3)
                 picker.setParameters(picker_params)
 
-                smoothed_concensus_chrom_df = create_concensus_chromatogram(smoothed_df)
+                smoothed_for_consensus = smoothed_df[["rt", "annotation"]].copy()
+                smoothed_for_consensus["intensity"] = smoothed_df["smoothed_int"]
+                smoothed_concensus_chrom_df = create_concensus_chromatogram(
+                    smoothed_for_consensus
+                )
                 smoothed_concensus_pp_df = perform_xic_peak_picking(
                     smoothed_concensus_chrom_df,
                     intensity_col="intensity",
@@ -550,17 +582,42 @@ if (
                     show_plot=False,
                 )
 
-                # Lets make a combined plot with both the raw and smoothed concensus chromatograms and their respective picked peaks
+                # ==================================================
+                # Create a 3x2 layout: left column = concensus plots, right column = individual-transition XICs
                 combined_concensus_plot = make_subplots(
-                    rows=2,
-                    cols=1,
+                    rows=3,
+                    cols=2,
                     shared_xaxes=True,
-                    vertical_spacing=0.1,
+                    vertical_spacing=0.08,
+                    horizontal_spacing=0.08,
                     subplot_titles=[
-                        "Raw Concensus Chromatogram with Peak Picking",
-                        "Smoothed Concensus Chromatogram with Peak Picking",
+                        "Raw Concensus Chromatogram (Raw PP)",
+                        "Raw XICs (per transition)",
+                        "Raw Concensus Chromatogram (Smoothed PP)",
+                        "Raw XICs (per transition)",
+                        "Smoothed Concensus Chromatogram (Smoothed PP)",
+                        "Smoothed XICs (per transition)",
                     ],
                 )
+
+                # prepare per-transition raw and smoothed data
+                exp_df_targeted = st.session_state.exp_df_targeted
+                # raw per-transition XICs (unsmoothed)
+                raw_transitions_df = (
+                    exp_df_targeted.apply(
+                        lambda x: x.fillna(0)
+                        if x.dtype.kind in "biufc"
+                        else x.fillna(".")
+                    )
+                    .groupby(["annotation", "rt"])["intensity"]
+                    .sum()
+                    .reset_index()
+                )
+
+                # smoothed per-transition XICs (smoothed_df was computed earlier)
+                smoothed_transitions_df = smoothed_df.copy()
+
+                # Row 1: Raw concensus with raw peak picking (left) and raw transitions (right)
                 combined_concensus_plot.add_trace(
                     go.Scatter(
                         x=concensus_raw_chrom_df["rt"],
@@ -580,13 +637,101 @@ if (
                         annotation_text=f"FWHM: {peak['FWHM']:.2f}s | Int: {peak['integrated_intensity_fda']:.0f}",
                         annotation_position="top left",
                     )
-
                     combined_concensus_plot.add_vline(
                         x=peak["rightWidth"],
                         line=dict(color="red", width=1, dash="dash"),
                         row=1,
                         col=1,
                     )
+
+                # right column: raw per-transition traces (with legend grouping across all rows)
+                annotations = list(raw_transitions_df["annotation"].unique())
+                for ai, ann in enumerate(annotations):
+                    df_sub = raw_transitions_df[raw_transitions_df["annotation"] == ann]
+                    combined_concensus_plot.add_trace(
+                        go.Scatter(
+                            x=df_sub["rt"],
+                            y=df_sub["intensity"],
+                            mode="lines",
+                            name=str(ann),
+                            legendgroup=str(ann),
+                            showlegend=ai == 0,
+                        ),
+                        row=1,
+                        col=2,
+                    )
+                # overlay concensus boundaries on right column
+                for _, peak in concensus_raw_pp_df.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="red", width=1, dash="dash"),
+                        row=1,
+                        col=2,
+                    )
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="red", width=1, dash="dash"),
+                        row=1,
+                        col=2,
+                    )
+
+                # Row 2: Raw concensus with smoothed peak picking (left) and raw transitions (right)
+                combined_concensus_plot.add_trace(
+                    go.Scatter(
+                        x=concensus_raw_chrom_df["rt"],
+                        y=concensus_raw_chrom_df["intensity"],
+                        mode="lines",
+                        name="Raw Concensus Chromatogram",
+                    ),
+                    row=2,
+                    col=1,
+                )
+                for _, peak in concensus_raw_pp_df_smooth.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="green", width=1, dash="dash"),
+                        row=2,
+                        col=1,
+                        annotation_text=f"FWHM: {peak['FWHM']:.2f}s | Int: {peak['integrated_intensity_fda']:.0f}",
+                        annotation_position="top left",
+                    )
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="green", width=1, dash="dash"),
+                        row=2,
+                        col=1,
+                    )
+
+                # right column: raw per-transition traces (same groups; hide duplicate legend entries)
+                for ai, ann in enumerate(annotations):
+                    df_sub = raw_transitions_df[raw_transitions_df["annotation"] == ann]
+                    combined_concensus_plot.add_trace(
+                        go.Scatter(
+                            x=df_sub["rt"],
+                            y=df_sub["intensity"],
+                            mode="lines",
+                            name=str(ann),
+                            legendgroup=str(ann),
+                            showlegend=False,
+                        ),
+                        row=2,
+                        col=2,
+                    )
+                for _, peak in concensus_raw_pp_df_smooth.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="green", width=1, dash="dash"),
+                        row=2,
+                        col=2,
+                    )
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="green", width=1, dash="dash"),
+                        row=2,
+                        col=2,
+                    )
+
+                # Row 3: Smoothed concensus with smoothed peak picking (left) and smoothed transitions (right)
                 combined_concensus_plot.add_trace(
                     go.Scatter(
                         x=smoothed_concensus_chrom_df["rt"],
@@ -594,34 +739,72 @@ if (
                         mode="lines",
                         name="Smoothed Concensus Chromatogram",
                     ),
-                    row=2,
+                    row=3,
                     col=1,
                 )
                 for _, peak in smoothed_concensus_pp_df.iterrows():
                     combined_concensus_plot.add_vline(
                         x=peak["leftWidth"],
                         line=dict(color="blue", width=1, dash="dash"),
-                        row=2,
+                        row=3,
                         col=1,
                         annotation_text=f"FWHM: {peak['FWHM']:.2f}s | Int: {peak['integrated_intensity_fda']:.0f}",
                         annotation_position="top left",
                     )
-
                     combined_concensus_plot.add_vline(
                         x=peak["rightWidth"],
                         line=dict(color="blue", width=1, dash="dash"),
-                        row=2,
+                        row=3,
                         col=1,
                     )
+
+                # right column: smoothed per-transition traces
+                smoothed_annotations = list(
+                    smoothed_transitions_df["annotation"].unique()
+                )
+                for ai, ann in enumerate(smoothed_annotations):
+                    df_sub = smoothed_transitions_df[
+                        smoothed_transitions_df["annotation"] == ann
+                    ]
+                    combined_concensus_plot.add_trace(
+                        go.Scatter(
+                            x=df_sub["rt"],
+                            y=df_sub["smoothed_int"],
+                            mode="lines",
+                            name=str(ann),
+                            legendgroup=str(ann),
+                            showlegend=False,
+                        ),
+                        row=3,
+                        col=2,
+                    )
+                for _, peak in smoothed_concensus_pp_df.iterrows():
+                    combined_concensus_plot.add_vline(
+                        x=peak["leftWidth"],
+                        line=dict(color="blue", width=1, dash="dash"),
+                        row=3,
+                        col=2,
+                    )
+                    combined_concensus_plot.add_vline(
+                        x=peak["rightWidth"],
+                        line=dict(color="blue", width=1, dash="dash"),
+                        row=3,
+                        col=2,
+                    )
+
+                # axis labels and layout
                 combined_concensus_plot.update_yaxes(
                     title_text="Intensity", row=1, col=1
                 )
                 combined_concensus_plot.update_yaxes(
                     title_text="Intensity", row=2, col=1
                 )
+                combined_concensus_plot.update_yaxes(
+                    title_text="Intensity", row=3, col=1
+                )
                 combined_concensus_plot.update_layout(
-                    height=800,
-                    title_text="Comparison of Raw vs Smoothed Concensus Chromatograms with Peak Picking",
+                    height=900,
+                    title_text="Comparison of Concensus Chromatograms and Individual Transition XICs",
                 )
                 st.plotly_chart(combined_concensus_plot, use_container_width=True)
 
