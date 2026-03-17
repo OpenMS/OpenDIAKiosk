@@ -655,7 +655,7 @@ if (
                             mode="lines",
                             name=str(ann),
                             legendgroup=str(ann),
-                            showlegend=ai == 0,
+                            showlegend=True,
                         ),
                         row=1,
                         col=2,
