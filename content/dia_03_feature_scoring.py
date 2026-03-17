@@ -76,6 +76,62 @@ def xcorr_coelution_score(xics: list[np.ndarray]) -> float:
     return float(np.mean(delays) + np.std(delays))
 
 
+def spectral_angle(lib: np.ndarray, obs: np.ndarray) -> float:
+    """Normalised spectral angle ∈ [0,1].  1 = perfect match."""
+    lib = np.asarray(lib, dtype=float)
+    obs = np.asarray(obs, dtype=float)
+    nl = np.linalg.norm(lib)
+    no = np.linalg.norm(obs)
+    if nl < 1e-12 or no < 1e-12:
+        return 0.0
+    cos_theta = np.dot(lib / nl, obs / no)
+    cos_theta = float(np.clip(cos_theta, -1, 1))
+    return 1.0 - (2.0 * np.arccos(cos_theta) / np.pi)
+
+
+def dot_product(lib: np.ndarray, obs: np.ndarray) -> float:
+    """Square-root + L2 normalised dot product."""
+    lib_s = np.sqrt(np.maximum(lib, 0))
+    obs_s = np.sqrt(np.maximum(obs, 0))
+    nl = np.linalg.norm(lib_s)
+    no = np.linalg.norm(obs_s)
+    if nl < 1e-12 or no < 1e-12:
+        return 0.0
+    return float(np.dot(lib_s / nl, obs_s / no))
+
+
+def manhattan_score(lib: np.ndarray, obs: np.ndarray) -> float:
+    """Sqrt-normalised Manhattan distance (lower = better match)."""
+    lib_s = np.sqrt(np.maximum(lib, 0))
+    obs_s = np.sqrt(np.maximum(obs, 0))
+    sl = lib_s.sum()
+    so = obs_s.sum()
+    if sl < 1e-12 or so < 1e-12:
+        return 1.0
+    return float(np.sum(np.abs(lib_s / sl - obs_s / so)))
+
+
+def pearson_corr(lib: np.ndarray, obs: np.ndarray) -> float:
+    """Pearson correlation between library and observed intensity vectors."""
+    if np.std(lib) < 1e-12 or np.std(obs) < 1e-12:
+        return 0.0
+    return float(np.corrcoef(lib, obs)[0, 1])
+
+
+def rmsd_score(lib: np.ndarray, obs: np.ndarray) -> float:
+    """Normalised RMSD (lower = better)."""
+    mu_l = lib.mean()
+    mu_o = obs.mean()
+    if mu_l < 1e-12 or mu_o < 1e-12:
+        return 1.0
+    return float(np.sqrt(np.mean(np.abs(obs / mu_o - lib / mu_l))))
+
+
+def score_badge(value: float, good_high: bool = True) -> str:
+    """Return a coloured Streamlit metric delta string."""
+    return "↑" if good_high else "↓"
+
+
 # -----------------------------------
 #   Page content
 
@@ -353,5 +409,176 @@ with st.expander("How cross-correlation works — code"):
 
 # VAR_XCORR_SHAPE    = mean of cc[best_idx] across all pairs
 # VAR_XCORR_COELUTION = mean(|delays|) + std(|delays|) across all pairs''',
+        language="python",
+    )
+
+# --------------------------------
+#   Library Scores
+
+st.markdown("---")
+st.subheader("Library Scores")
+
+st.markdown(
+    r"""
+Library scores compare the **observed peak-apex fragment intensities** against
+the reference intensities stored in the spectral library.  A true detection
+should produce intensities that closely mirror the library spectrum.
+
+| Score | Formula (simplified) | Good detection |
+|---|---|---|
+| `VAR_LIBRARY_SANGLE` | $1 - \frac{2}{\pi}\arccos\!\left(\frac{b \cdot x}{\|b\|\|x\|}\right)$ | → 1 |
+| `VAR_LIBRARY_DOTPROD` | $\frac{\sqrt{b}}{\|\sqrt{b}\|} \cdot \frac{\sqrt{x}}{\|\sqrt{x}\|}$ | → 1 |
+| `VAR_LIBRARY_CORR` | Pearson $r(b, x)$ | → 1 |
+| `VAR_LIBRARY_MANHATTAN` | $\sum_i \|\frac{\sqrt{b_i}}{\sum\sqrt{b}} - \frac{\sqrt{x_i}}{\sum\sqrt{x}}\|$ | → 0 |
+| `VAR_LIBRARY_RMSD` | $\sqrt{\frac{1}{N}\sum_i\left(\frac{x_i}{\mu_x} - \frac{b_i}{\mu_b}\right)^2}$ | → 0 |
+
+$b$ = library intensities, $x$ = observed intensities.
+"""
+)
+
+st.markdown("#### Library Match Quality")
+
+col_lib1, col_lib2 = st.columns(2)
+with col_lib1:
+    intensity_noise_pct = st.slider(
+        "Intensity perturbation (% random deviation)",
+        min_value=0,
+        max_value=100,
+        value=15,
+        step=5,
+        help="How much each observed fragment intensity deviates from the library. "
+        "0% = perfect match; 100% = fully random.",
+    )
+with col_lib2:
+    n_missing_frags = st.slider(
+        "Missing/interfered transitions",
+        min_value=0,
+        max_value=5,
+        value=0,
+        step=1,
+        help="Transitions with no signal (e.g. from co-eluting interference).",
+    )
+
+# Library intensities
+N_FRAGS = 7
+frag_labels = [f"y{i + 2}" for i in range(N_FRAGS)]
+frag_mzs = [300 + i * 120 for i in range(N_FRAGS)]
+lib_ints = np.array([1.00, 0.75, 0.88, 0.55, 0.42, 0.30, 0.20])
+
+# Observed: perturb library + zero out missing
+rng_lib = np.random.default_rng(17)
+obs_ints = lib_ints.copy()
+obs_ints += rng_lib.normal(0, intensity_noise_pct / 100.0, N_FRAGS)
+obs_ints = np.maximum(obs_ints, 0.01)
+for i in range(min(n_missing_frags, N_FRAGS)):
+    obs_ints[-(i + 1)] = rng_lib.exponential(0.04)
+
+obs_ints_norm = obs_ints / obs_ints.max()
+
+# Scores
+sa = spectral_angle(lib_ints, obs_ints_norm)
+dp = dot_product(lib_ints, obs_ints_norm)
+pr = pearson_corr(lib_ints, obs_ints_norm)
+mh = manhattan_score(lib_ints, obs_ints_norm)
+rmsd = rmsd_score(lib_ints, obs_ints_norm)
+
+# Mirror plot
+B_COLOR = "#2266CC"
+Y_COLOR = "#CC2222"
+fig_lib, ax_lib = plt.subplots(figsize=(11, 4.5))
+x_pos = np.arange(N_FRAGS)
+bar_w = 0.32
+
+bars_lib = ax_lib.bar(
+    x_pos - bar_w / 2,
+    lib_ints,
+    bar_w,
+    color=B_COLOR,
+    alpha=0.82,
+    label="Library",
+    edgecolor="white",
+)
+bars_obs = ax_lib.bar(
+    x_pos + bar_w / 2,
+    obs_ints_norm,
+    bar_w,
+    color=Y_COLOR,
+    alpha=0.82,
+    label="Observed (apex)",
+    edgecolor="white",
+)
+
+for xi, (l, o) in zip(x_pos, zip(lib_ints, obs_ints_norm)):
+    ax_lib.plot(
+        [xi - bar_w / 2 + bar_w / 4, xi + bar_w / 2 + bar_w / 4],
+        [l, o],
+        color="#888888",
+        lw=0.9,
+        linestyle="--",
+        alpha=0.6,
+    )
+
+ax_lib.set_xticks(x_pos)
+ax_lib.set_xticklabels(frag_labels, fontsize=10)
+ax_lib.set_ylabel("Relative Intensity", fontsize=10)
+ax_lib.set_title("Library vs Observed Fragment Intensities", fontsize=11)
+ax_lib.set_ylim(0, 1.25)
+ax_lib.legend(fontsize=10)
+ax_lib.spines["top"].set_visible(False)
+ax_lib.spines["right"].set_visible(False)
+
+# Spectral angle arc annotation
+angle_deg = (1 - sa) * 90
+ax_lib.text(
+    N_FRAGS - 1 + 0.6,
+    1.15,
+    f"Spectral angle: {sa:.3f}\n(θ = {angle_deg:.1f}°)",
+    ha="right",
+    va="top",
+    fontsize=9,
+    bbox=dict(boxstyle="round,pad=0.3", facecolor="#EEF3FF", edgecolor=B_COLOR, lw=0.8),
+)
+
+fig_lib.tight_layout()
+fig_to_st(
+    fig_lib,
+    caption=(
+        "Blue = library reference intensities. Red = observed peak-apex intensities. "
+        "Dashed grey lines connect matching transitions."
+    ),
+)
+
+# Score metrics
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric(
+    "VAR_LIBRARY_SANGLE", f"{sa:.3f}", help="Spectral angle ∈ [0,1]. 1 = perfect."
+)
+c2.metric(
+    "VAR_LIBRARY_DOTPROD", f"{dp:.3f}", help="Sqrt-normalised dot product. 1 = perfect."
+)
+c3.metric("VAR_LIBRARY_CORR", f"{pr:.3f}", help="Pearson correlation. 1 = perfect.")
+c4.metric("VAR_LIBRARY_MANHATTAN", f"{mh:.3f}", help="Manhattan distance. 0 = perfect.")
+c5.metric("VAR_LIBRARY_RMSD", f"{rmsd:.3f}", help="Normalised RMSD. 0 = perfect.")
+
+with st.expander("Score equations & code"):
+    st.code(
+        """def spectral_angle(lib, obs):
+    cos_theta = np.dot(lib/||lib||, obs/||obs||)
+    return 1 - (2/π) * arccos(cos_theta)   # 1 = perfect
+
+def dot_product(lib, obs):
+    lib_s = sqrt(lib);  obs_s = sqrt(obs)
+    return dot(lib_s/||lib_s||, obs_s/||obs_s||)
+
+def pearson_corr(lib, obs):
+    return np.corrcoef(lib, obs)[0, 1]
+
+def manhattan_score(lib, obs):
+    lib_s = sqrt(lib)/sum(sqrt(lib))
+    obs_s = sqrt(obs)/sum(sqrt(obs))
+    return sum(|lib_s - obs_s|)           # 0 = perfect
+
+def rmsd_score(lib, obs):
+    return sqrt(mean((obs/mean(obs) - lib/mean(lib))^2))  # 0 = perfect""",
         language="python",
     )
