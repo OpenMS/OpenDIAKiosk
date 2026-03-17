@@ -582,3 +582,98 @@ def rmsd_score(lib, obs):
     return sqrt(mean((obs/mean(obs) - lib/mean(lib))^2))  # 0 = perfect""",
         language="python",
     )
+
+# ---------------------------------
+# Retention Time Scores
+
+st.markdown("---")
+st.subheader("Retention Time Score")
+
+st.markdown(
+    r"""
+The RT score measures how much the **detected peak apex** deviates from the
+**library-predicted retention time** (after iRT → experiment RT conversion).
+
+$$\text{RT\_SCORE} = |\text{RT}_\text{exp} - \text{RT}_\text{library}|$$
+
+$$\text{VAR\_NORM\_RT\_SCORE} = \frac{\text{RT\_SCORE}}{\text{rt\_normalization\_factor}}$$
+
+The default normalization factor is **100 s**. A well-calibrated detection
+should have `VAR_NORM_RT_SCORE` close to 0.
+"""
+)
+
+col_rt1, col_rt2 = st.columns(2)
+with col_rt1:
+    rt_deviation = st.slider(
+        "RT deviation from library prediction (s)",
+        min_value=0,
+        max_value=300,
+        value=20,
+        step=5,
+        help="How far the detected apex is from the iRT-predicted RT.",
+    )
+    rt_norm_factor = st.slider(
+        "RT normalization factor",
+        min_value=50,
+        max_value=300,
+        value=100,
+        step=10,
+        help="Default = 100 s. Larger window = more permissive.",
+    )
+
+rt_score = float(rt_deviation)
+var_norm_rt = rt_score / rt_norm_factor
+
+t_rt = np.linspace(0, 400, 500)
+lib_rt = 200.0
+exp_rt = lib_rt + rt_deviation
+peak_lib = gauss(t_rt, lib_rt, 8.0, 1.0)
+peak_exp = gauss(t_rt, exp_rt, 8.0, 0.85)
+win_lo = lib_rt - rt_norm_factor / 2
+win_hi = lib_rt + rt_norm_factor / 2
+
+fig_rt, ax_rt = plt.subplots(figsize=(11, 3.5))
+ax_rt.fill_between(t_rt, peak_lib, alpha=0.2, color="#2266CC")
+ax_rt.plot(t_rt, peak_lib, color="#2266CC", lw=2, label="Library-predicted apex")
+ax_rt.fill_between(t_rt, peak_exp, alpha=0.2, color="#CC2222")
+ax_rt.plot(t_rt, peak_exp, color="#CC2222", lw=2, label="Detected apex")
+
+ax_rt.axvspan(win_lo, win_hi, alpha=0.06, color="green", label="RT extraction window")
+ax_rt.axvline(lib_rt, color="#2266CC", lw=1.5, linestyle="--", alpha=0.7)
+ax_rt.axvline(exp_rt, color="#CC2222", lw=1.5, linestyle="--", alpha=0.7)
+
+if rt_deviation > 0:
+    mid = (lib_rt + exp_rt) / 2
+    y_ann = 0.55
+    ax_rt.annotate(
+        "",
+        xy=(exp_rt, y_ann),
+        xytext=(lib_rt, y_ann),
+        arrowprops=dict(arrowstyle="<->", color="#555555", lw=1.4),
+    )
+    ax_rt.text(
+        mid,
+        y_ann + 0.04,
+        f"Δ RT = {rt_deviation} s",
+        ha="center",
+        fontsize=9.5,
+        color="#555555",
+    )
+
+ax_rt.set_xlabel("Retention Time (s)", fontsize=10)
+ax_rt.set_ylabel("Intensity", fontsize=10)
+ax_rt.set_title("Retention Time Deviation", fontsize=11)
+ax_rt.legend(fontsize=9, loc="upper right")
+ax_rt.spines["top"].set_visible(False)
+ax_rt.spines["right"].set_visible(False)
+fig_rt.tight_layout()
+fig_to_st(fig_rt)
+
+col_rtm1, col_rtm2 = st.columns(2)
+col_rtm1.metric("RT_SCORE (s)", f"{rt_score:.1f}")
+col_rtm2.metric(
+    "VAR_NORM_RT_SCORE",
+    f"{var_norm_rt:.3f}",
+    help="Smaller = closer to predicted RT. 0 = exact match.",
+)
