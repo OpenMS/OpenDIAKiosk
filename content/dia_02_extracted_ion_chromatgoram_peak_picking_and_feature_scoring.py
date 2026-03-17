@@ -17,7 +17,11 @@ from utils.dia_tutorial import (
     apply_sgolay,
     msexperiment_to_dataframe,
 )
-from utils.dia_peak_picking import smooth_chromatogram, perform_xic_peak_picking
+from utils.dia_peak_picking import (
+    smooth_chromatogram,
+    perform_xic_peak_picking,
+    merge_transition_peak_boundaries_to_consensus,
+)
 
 page_setup()
 
@@ -46,18 +50,18 @@ target_im = 0.96756938061
 im_tol = 0.08
 
 # Session state variables to store the loaded data and prevent re-loading on every button click
-if "exp_df_targeted" not in st.session_state:
-    st.session_state.exp_df_targeted = None
-
 if "data_loaded" not in st.session_state:
     st.session_state.data_loaded = False
-
+if "exp_df_targeted" not in st.session_state:
+    st.session_state.exp_df_targeted = None
 if "sgolay_frame_length" not in st.session_state:
     st.session_state.sgolay_frame_length = 9
 if "sgolay_polynomial_order" not in st.session_state:
     st.session_state.sgolay_polynomial_order = 3
 if "gaussian_peak_width" not in st.session_state:
     st.session_state.gaussian_peak_width = 50.0
+if "picked_peaks_df" not in st.session_state:
+    st.session_state.picked_peaks_df = None
 
 load_clicked = st.button(
     "Load DIA Data and perform targeted extraction", type="primary"
@@ -230,23 +234,6 @@ if (
     st.session_state.exp_df_targeted is not None
     and not st.session_state.exp_df_targeted.empty
 ):
-    group_cols = ["ms_level", "annotation", "rt"]
-    integrate_col = "intensity"
-
-    # compute smoothed dataframe (used for both combined and per-transition plots)
-    exp_df_targeted = st.session_state.exp_df_targeted
-    smoothed_df = (
-        exp_df_targeted.apply(
-            lambda x: x.fillna(0) if x.dtype.kind in "biufc" else x.fillna(".")
-        )
-        .groupby(group_cols)[integrate_col]
-        .sum()
-        .reset_index()
-        .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
-        .apply(apply_sgolay, window_length=9, polyorder=3)
-        .reset_index(drop=True)
-    )
-
     # buttom to perform peak picking on the smoothed dataframe
     peak_picking_clicked = st.button(
         "Perform Peak Picking on Smoothed XICs", type="primary"
@@ -315,7 +302,7 @@ if (
 
     picker.setParameters(picker_params)
 
-    if peak_picking_clicked:
+    if peak_picking_clicked or st.session_state.picked_peaks_df is not None:
         with st.spinner("Performing peak picking and preparing plots..."):
             progress_pp = st.progress(0)
 
@@ -333,10 +320,10 @@ if (
                     .apply(apply_sgolay, window_length=9, polyorder=3)
                     .reset_index(drop=True)
                 )
-                picked_peaks_df = perform_xic_peak_picking(
+                st.session_state.picked_peaks_df = perform_xic_peak_picking(
                     summed_xic_df, intensity_col="intensity", picker=picker
                 )
-                st.dataframe(picked_peaks_df)
+                st.dataframe(st.session_state.picked_peaks_df)
             except Exception as e:
                 st.error(f"Error performing peak picking: {e}")
                 st.stop()
@@ -372,7 +359,9 @@ if (
                 )
 
                 # add vertical lines for picked peaks
-                peaks_sub = picked_peaks_df[picked_peaks_df["annotation"] == ann]
+                peaks_sub = st.session_state.picked_peaks_df[
+                    st.session_state.picked_peaks_df["annotation"] == ann
+                ]
 
                 multiple_peaks = len(peaks_sub) > 1
                 colors = ["red", "blue", "green", "orange", "purple", "brown"]
@@ -413,3 +402,73 @@ if (
                 st.markdown(
                     ":blue[**Note:** The XIC rendered is the raw data, peak picking was performed using the gaussian smoothed data internally.]"
                 )
+
+            st.markdown("""
+            In the plot above, we show the XICs for each transition in separate subplots, with vertical dashed lines indicating the left and right peak boundaries identified by the peak picking algorithm. The annotation for each peak shows the FWHM and integrated intensity for that peak. Depending on the smoothing method used, the detected peaks and their boundaries may differ. We can also see that the individual peak boundaries may differ slightly across transitions. The next step is to merge these individual peak boundaries across transitions to generate consensus peak boundaries for the precursor feature.
+                        """)
+
+            # button to perform merging of transition-level peak boundaries into consensus features
+            merge_clicked = st.button(
+                "Merge Transition-Level Peak Boundaries into Consensus Features",
+                type="primary",
+            )
+            if merge_clicked:
+                consensus_df, members_df = (
+                    merge_transition_peak_boundaries_to_consensus(
+                        st.session_state.picked_peaks_df,
+                        intensity_col="integrated_intensity_fda",
+                        min_annotations=2,
+                        keep_singletons=True,
+                        boundary_mode="weighted_median",
+                        min_overlap=0.05,
+                        apex_tol_factor=0.4,
+                        gap_factor=0.1,
+                    )
+                )
+
+                st.dataframe(consensus_df)
+
+                group_cols = ["ms_level", "annotation", "rt"]
+                integrate_col = "intensity"
+
+                # compute smoothed dataframe (used for both combined and per-transition plots)
+                exp_df_targeted = st.session_state.exp_df_targeted
+                smoothed_df = (
+                    exp_df_targeted.apply(
+                        lambda x: x.fillna(0)
+                        if x.dtype.kind in "biufc"
+                        else x.fillna(".")
+                    )
+                    .groupby(group_cols)[integrate_col]
+                    .sum()
+                    .reset_index()
+                    .groupby(["annotation", "ms_level"])[group_cols + [integrate_col]]
+                    .apply(apply_sgolay, window_length=9, polyorder=3)
+                    .reset_index(drop=True)
+                )
+
+                # Get max smoothed_int across all data
+                max_smoothed_int = smoothed_df["smoothed_int"].max()
+                consensus_df[["apexIntensity"]] = max_smoothed_int
+
+                xic_plot = smoothed_df.plot(
+                    kind="chromatogram",
+                    x="rt",
+                    y="smoothed_int",
+                    by="annotation",
+                    title=f"Smoothed Chromatogram with Consensus Features - {peptide} / {precursor_charge}+",
+                    aggregate_duplicates=False,
+                    annotation_data=consensus_df,
+                    legend_config=dict(title="Transition"),
+                    # feature_config=dict(),
+                    backend="ms_plotly",
+                    show_plot=False,
+                )
+
+                st.plotly_chart(xic_plot, use_container_width=True)
+
+                st.markdown("""
+                In the plot above, we show the smoothed XICs for each transition with the consensus peak boundaries plotted as vertical solid lines. 
+                
+                But why go through all the trouble of doing individual transition-level peak picking and then merging into consensus features? Why not just perform peak picking on the summed XICs across all transitions for a precursor? Let's try that next.
+                """)
