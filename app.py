@@ -29,10 +29,18 @@ if __name__ == "__main__":
                 icon="🧪",
             ),
             st.Page(
-                Path("content", "dia_02_extracted_ion_chromatgoram_peak_picking_and_feature_scoring.py"),
+                Path(
+                    "content",
+                    "dia_02_extracted_ion_chromatgoram_peak_picking_and_feature_scoring.py",
+                ),
                 title="Peak Detection and Feature Scoring",
                 icon="📶",
-            )
+            ),
+            st.Page(
+                Path("content", "dia_03_feature_scoring.py"),
+                title="Feature Scoring",
+                icon="📶",
+            ),
         ],
         "Spectral Library Generation": [
             st.Page(
