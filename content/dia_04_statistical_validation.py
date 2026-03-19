@@ -375,6 +375,115 @@ def compute_full_stats(d_scores: np.ndarray, feat_df: pd.DataFrame) -> dict:
     }
 
 
+def compute_feature_importance_cache(
+    feat_df: pd.DataFrame,
+    X_scaled: np.ndarray,
+    use_cols: list[str],
+    all_scores: dict[str, np.ndarray],
+) -> dict[str, dict]:
+    """Compute and cache feature importance data for each trained model."""
+    is_decoy = feat_df["decoy"].to_numpy()
+    group_ids = feat_df["group_id"].to_numpy()
+    cache: dict[str, dict] = {}
+
+    for nm, sc in all_scores.items():
+        try:
+            res = compute_full_stats(sc, feat_df)
+            thr = res["threshold"]
+            df_tmp = pd.DataFrame(
+                {"g": group_ids, "s": sc, "i": np.arange(len(feat_df))}
+            )
+            top1_idx = (
+                df_tmp.sort_values("s", ascending=False)
+                .groupby("g", sort=False)["i"]
+                .first()
+                .to_numpy()
+            )
+            conf_mask = np.zeros(len(feat_df), dtype=bool)
+            conf_mask[top1_idx] = True
+            conf_mask &= (is_decoy == 0) & (sc >= thr)
+            train_mask = conf_mask | (is_decoy == 1)
+            X_tr = X_scaled[train_mask]
+            y_tr = is_decoy[train_mask]
+
+            imp_vals = None
+            imp_std = None
+            imp_label = ""
+
+            if nm == "LDA":
+                m = LinearDiscriminantAnalysis().fit(X_tr, y_tr)
+                coef = m.coef_[0]
+                if np.mean(m.decision_function(X_scaled)[is_decoy == 0]) < np.mean(
+                    m.decision_function(X_scaled)[is_decoy == 1]
+                ):
+                    coef = -coef
+                imp_vals = coef
+                imp_label = "LDA coefficient"
+            elif nm == "SVM":
+                m = Pipeline(
+                    [
+                        ("sc", StandardScaler(with_std=False)),
+                        ("clf", LinearSVC(max_iter=3000, C=0.05)),
+                    ]
+                ).fit(X_tr, y_tr)
+                coef = m.named_steps["clf"].coef_[0]
+                if np.mean(m.decision_function(X_scaled)[is_decoy == 0]) < np.mean(
+                    m.decision_function(X_scaled)[is_decoy == 1]
+                ):
+                    coef = -coef
+                imp_vals = coef
+                imp_label = "SVM coefficient"
+            elif nm == "XGBoost" and XGBOOST_AVAILABLE:
+                m = xgb.XGBClassifier(
+                    n_estimators=100,
+                    max_depth=3,
+                    verbosity=0,
+                    random_state=42,
+                    n_jobs=1,
+                ).fit(X_tr, y_tr)
+                imp_vals = m.feature_importances_
+                imp_label = "XGBoost gain"
+            elif nm == "MLP":
+                m = MLPClassifier(
+                    hidden_layer_sizes=(64, 32, 16),
+                    activation="relu",
+                    max_iter=200,
+                    random_state=42,
+                    early_stopping=True,
+                    validation_fraction=0.1,
+                    n_iter_no_change=10,
+                ).fit(X_tr, y_tr)
+                perm = permutation_importance(
+                    m,
+                    X_tr,
+                    y_tr,
+                    scoring="roc_auc",
+                    n_repeats=10,
+                    random_state=42,
+                    n_jobs=1,
+                    max_samples=min(len(X_tr), 2000),
+                )
+                imp_vals = perm.importances_mean
+                imp_std = perm.importances_std
+                imp_label = "Permutation importance (ROC-AUC)"
+
+            if imp_vals is not None:
+                cache[nm] = {
+                    "feature": list(use_cols),
+                    "importance": np.asarray(imp_vals, dtype=float).tolist(),
+                    "importance_std": None
+                    if imp_std is None
+                    else np.asarray(imp_std, dtype=float).tolist(),
+                    "label": imp_label,
+                }
+        except Exception as exc:
+            cache[nm] = {
+                "error": str(exc),
+            }
+
+    return cache
+
+
 # ----------------------------------------------
 # Stages
 
@@ -825,6 +934,94 @@ upward toward (1,1) where true positives dominate.
         st.plotly_chart(fig3, use_container_width=True)
 
 
+@st.fragment
+def render_stage_4() -> None:
+    """Render Stage 4 inside a fragment so importance plots rerun independently."""
+    if not st.session_state.s3_done:
+        return
+
+    st.markdown("---")
+    st.subheader("Feature Importance")
+
+    s4_btn = st.button(
+        "▶ Show Feature Importance",
+        type="primary",
+        disabled=st.session_state.s4_done,
+        key="s4_importance_btn",
+    )
+
+    if s4_btn and not st.session_state.s4_done:
+        st.session_state.s4_done = True
+        st.rerun()
+
+    if not st.session_state.s4_done:
+        return
+
+    feat_df = st.session_state.feat_df
+    X_scaled = st.session_state.X_scaled
+    use_cols = st.session_state.use_cols
+    all_scores = st.session_state.all_scores
+    is_decoy = feat_df["decoy"].to_numpy()
+    group_ids = feat_df["group_id"].to_numpy()
+
+    st.markdown(
+        """
+Feature importance is derived from the **final-iteration** model fitted on the
+semi-supervised training set for each scorer. Linear models show **signed** coefficients
+(positive pushes toward targets, negative toward decoys). XGBoost gain and MLP
+permutation importance are **magnitude-only** measures.
+"""
+    )
+
+    if not st.session_state.importance_cache:
+        with st.spinner(
+            "Fitting feature-importance models (including permutation importance for MLP)..."
+        ):
+            st.session_state.importance_cache = compute_feature_importance_cache(
+                feat_df=feat_df,
+                X_scaled=X_scaled,
+                use_cols=use_cols,
+                all_scores=all_scores,
+            )
+
+    for nm, imp_res in st.session_state.importance_cache.items():
+        if "error" in imp_res:
+            st.warning(f"Importance unavailable for {nm}: {imp_res['error']}")
+            continue
+
+        imp_df = pd.DataFrame(
+            {
+                "feature": imp_res["feature"],
+                "importance": imp_res["importance"],
+                "importance_std": imp_res["importance_std"]
+                if imp_res["importance_std"] is not None
+                else [None] * len(imp_res["feature"]),
+            }
+        )
+        imp_df = imp_df.sort_values("importance", ascending=True).tail(15)
+        fig_imp = go.Figure(
+            go.Bar(
+                x=imp_df["importance"],
+                y=imp_df["feature"],
+                orientation="h",
+                marker_color=MODEL_COLORS.get(nm, "#888888"),
+                opacity=0.85,
+                error_x=(
+                    dict(type="data", array=imp_df["importance_std"], visible=True)
+                    if imp_res["importance_std"] is not None
+                    else None
+                ),
+            )
+        )
+        fig_imp.update_layout(
+            title=f"{nm} — {imp_res['label']} (top 15)",
+            xaxis_title="Importance",
+            yaxis_title="",
+            height=400,
+        )
+        st.plotly_chart(fig_imp, use_container_width=True)
+
+
 # -----------------------------------------------------------------------------
 # Page content
 
@@ -849,6 +1046,8 @@ render_stage_1()
 render_stage_2()
 
 render_stage_3()
+
+render_stage_4()
 
 # -----------------------------------------------------------------------------
 # References
