@@ -41,6 +41,11 @@ if __name__ == "__main__":
                 title="Feature Scoring",
                 icon="📶",
             ),
+            st.Page(
+                Path("content", "dia_04_statistical_validation.py"),
+                title="Statistical Validation",
+                icon="📶",
+            ),
         ],
         "Spectral Library Generation": [
             st.Page(
