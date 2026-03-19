@@ -383,7 +383,7 @@ def compute_full_stats(d_scores: np.ndarray, feat_df: pd.DataFrame) -> dict:
 def render_stage_1() -> None:
     """Render Stage 1 inside a fragment so its widgets rerun independently."""
     st.markdown("---")
-    st.subheader("Stage 1: Load Feature Data & Exploratory Analysis")
+    st.subheader("Load Feature Data & Exploratory Analysis")
 
     s1_btn = st.button(
         "▶ Load Feature Data",
@@ -506,7 +506,7 @@ def render_stage_2() -> None:
         return
 
     st.markdown("---")
-    st.subheader("Stage 2: Semi-Supervised Discriminant Learning")
+    st.subheader("Semi-Supervised Discriminant Learning")
 
     available_models = ["LDA", "SVM"]
     if XGBOOST_AVAILABLE:
@@ -619,6 +619,212 @@ d_scores = (clf_scores - mean(decoy_clf)) / std(decoy_clf)
         )
 
 
+@st.fragment
+def render_stage_3() -> None:
+    """Render Stage 3 inside a fragment so plotting/statistics rerun independently."""
+    if not st.session_state.s2_done:
+        return
+
+    st.markdown("---")
+    st.subheader("Score Distributions & Statistical Validation")
+
+    s3_btn = st.button(
+        "▶ Compute Statistics & Show Plots",
+        type="primary",
+        disabled=st.session_state.s3_done,
+        key="s3_stats_btn",
+    )
+
+    if s3_btn and not st.session_state.s3_done:
+        feat_df = st.session_state.feat_df
+        all_scores = st.session_state.all_scores
+        stats_results = {}
+        for nm, sc in all_scores.items():
+            try:
+                stats_results[nm] = compute_full_stats(sc, feat_df)
+            except Exception as e:
+                st.warning(f"Stats failed for {nm}: {e}")
+        st.session_state.stats_results = stats_results
+        st.session_state.s3_done = True
+        st.rerun()
+
+    if not st.session_state.s3_done:
+        return
+
+    stats_results = st.session_state.stats_results
+
+    st.markdown(
+        """
+### How the statistics are computed
+
+**Empirical p-values** (`pemp`, matching bioconductor/qvalue `empPvals`):
+For each top-1 target d-score, count how many decoy d-scores are ≥ it,
+normalised by the total number of decoys — fully non-parametric.
+
+**π₀ estimation** (bootstrap method):
+The proportion of null features is estimated as:
+the minimum MSE bootstrap estimate across a grid of lambda values,
+where `pi0(lambda) = #{p >= lambda} / (m * (1-lambda))`.
+
+**q-values** (Storey & Tibshirani 2003):
+`q(p) = pi0 * m * p / rank(p)`, monotonised from right to left.
+
+**PEP** (local FDR via probit-KDE):
+`PEP(p) = pi0 / f(p)`, where f(p) is a KDE density estimate on
+probit-transformed p-values.
+
+**P-P plot** (target-decoy assumption check — Levitsky et al. 2017):
+ECDF of target d-scores vs ECDF of decoy d-scores, interpolated onto a
+common score grid. If the target-decoy model is valid, the P-P curve
+should follow `y = pi0 * x` in the low-score (null) region and curve
+upward toward (1,1) where true positives dominate.
+"""
+    )
+
+    for nm, res in stats_results.items():
+        t_sc = res["t_scores"]
+        d_sc = res["d_scores_dec"]
+        pvals = res["p_vals"]
+        pi0_r = res["pi0"]
+        pi0_v = pi0_r["pi0"]
+        thr = res["threshold"]
+        n_ids = res["n_ids_1pct"]
+
+        fig3 = make_subplots(
+            rows=2,
+            cols=2,
+            subplot_titles=[
+                f"group d-score distributions — {nm}",
+                f"group d-score densities — {nm}",
+                f"p-value density histogram  (π₀ = {pi0_v:.3f})",
+                "P-P Plot",
+            ],
+            vertical_spacing=0.20,
+            horizontal_spacing=0.12,
+        )
+
+        for vals, label, col in [
+            (t_sc, "target", TARGET_COLOR),
+            (d_sc, "decoy", DECOY_COLOR),
+        ]:
+            h, e = np.histogram(vals, bins=40)
+            fig3.add_trace(
+                go.Bar(
+                    x=(e[:-1] + e[1:]) / 2,
+                    y=h,
+                    name=label,
+                    marker_color=col,
+                    opacity=0.75,
+                    legendgroup=label,
+                    showlegend=True,
+                ),
+                row=1,
+                col=1,
+            )
+            x_g = np.linspace(vals.min() - 0.5, vals.max() + 0.5, 300)
+            try:
+                y_k = gaussian_kde(vals)(x_g)
+            except Exception:
+                y_k = np.zeros_like(x_g)
+            fig3.add_trace(
+                go.Scatter(
+                    x=x_g,
+                    y=y_k,
+                    mode="lines",
+                    name=label,
+                    line=dict(color=col, width=2),
+                    legendgroup=label,
+                    showlegend=False,
+                ),
+                row=1,
+                col=2,
+            )
+        for c in [1, 2]:
+            fig3.add_vline(
+                x=thr,
+                line_dash="dash",
+                line_color="grey",
+                line_width=2,
+                annotation_text=f"Cutoff @ 1%: {thr:.2f}" if c == 1 else "",
+                row=1,
+                col=c,
+            )
+
+        h_pv, e_pv = np.histogram(pvals, bins=20, density=True)
+        fig3.add_trace(
+            go.Bar(
+                x=(e_pv[:-1] + e_pv[1:]) / 2,
+                y=h_pv,
+                marker_color="#5B9BD5",
+                opacity=0.8,
+                showlegend=False,
+            ),
+            row=2,
+            col=1,
+        )
+        fig3.add_hline(y=pi0_v, line_color="red", line_width=2, row=2, col=1)
+
+        x_t = np.sort(t_sc)
+        y_t = np.arange(1, len(x_t) + 1) / len(x_t)
+        x_d = np.sort(d_sc)
+        y_d = np.arange(1, len(x_d) + 1) / len(x_d)
+        x_seq = np.linspace(min(x_t.min(), x_d.min()), max(x_t.max(), x_d.max()), 1000)
+        y_t_i = np.interp(x_seq, x_t, y_t)
+        y_d_i = np.interp(x_seq, x_d, y_d)
+        fig3.add_trace(
+            go.Scatter(
+                x=y_d_i,
+                y=y_t_i,
+                mode="markers",
+                marker=dict(size=3, opacity=0.5, color="#5B9BD5"),
+                name="Target vs Decoy ECDF",
+                showlegend=True,
+            ),
+            row=2,
+            col=2,
+        )
+        fig3.add_trace(
+            go.Scatter(
+                x=[0, 1],
+                y=[0, 1],
+                mode="lines",
+                line=dict(color="red", dash="dash"),
+                name="y = x (Perfect match)",
+                showlegend=True,
+            ),
+            row=2,
+            col=2,
+        )
+        fig3.add_trace(
+            go.Scatter(
+                x=[0, 1],
+                y=[0, pi0_v],
+                mode="lines",
+                line=dict(color="blue", dash="dot"),
+                name=f"y = {pi0_v:.2f} × x",
+                showlegend=True,
+            ),
+            row=2,
+            col=2,
+        )
+
+        fig3.update_xaxes(title_text="d-score", row=1)
+        fig3.update_xaxes(title_text="p-value", row=2, col=1)
+        fig3.update_xaxes(title_text="Decoy ECDF", row=2, col=2)
+        fig3.update_yaxes(title_text="# of groups", row=1, col=1)
+        fig3.update_yaxes(title_text="density", row=1, col=2)
+        fig3.update_yaxes(title_text="density", row=2, col=1)
+        fig3.update_yaxes(title_text="Target ECDF", row=2, col=2)
+        fig3.update_layout(
+            height=720,
+            barmode="overlay",
+            margin=dict(t=80, b=50, l=60, r=40),
+            title_text=f"{nm}  |  π₀ = {pi0_v:.3f}  |  IDs @ 1% FDR: {n_ids:,}",
+            legend=dict(title="Label"),
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+
 # -----------------------------------------------------------------------------
 # Page content
 
@@ -641,3 +847,35 @@ The workflow mirrors a typical workflow in PyProphet:
 render_stage_1()
 
 render_stage_2()
+
+render_stage_3()
+
+# -----------------------------------------------------------------------------
+# References
+
+st.markdown("---")
+st.subheader("References")
+st.markdown(
+    """
+1. **Käll L, Canterbury JD, Weston J, Noble WS, MacCoss MJ.**
+   Semi-supervised learning for peptide identification from shotgun proteomics datasets.
+   *Nat Methods.* 2007;4(11):923–925. https://doi.org/10.1038/nmeth1113
+
+2. **Storey JD, Tibshirani R.**
+   Statistical significance for genome-wide studies.
+   *Proc Natl Acad Sci USA.* 2003;100(16):9440–9445. https://doi.org/10.1073/pnas.1530509100
+
+3. **Elias JE, Gygi SP.**
+   Target-decoy search strategy for increased confidence in large-scale protein
+   identifications by mass spectrometry. *Nat Methods.* 2007;4(3):207–214.
+   https://doi.org/10.1038/nmeth1019
+
+4. **Levitsky LI, Ivanov MV, Lobas AA, Gorshkov MV.**
+   Unbiased false discovery rate estimation for shotgun proteomics.
+   *J Proteome Res.* 2017;16(2):393–397. https://doi.org/10.1021/acs.jproteome.6b00144
+
+5. **Röst HL et al.**
+   OpenSWATH enables automated, targeted analysis of data-independent acquisition MS data.
+   *Nat Biotechnol.* 2014;32(3):219–223. https://doi.org/10.1038/nbt.2841
+"""
+)
