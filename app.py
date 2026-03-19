@@ -26,7 +26,7 @@ if __name__ == "__main__":
             st.Page(
                 Path("content", "dia_01_targeted_data_extraction.py"),
                 title="Targeted Data Extraction",
-                icon="🧪",
+                icon="🎯",
             ),
             st.Page(
                 Path(
@@ -34,17 +34,17 @@ if __name__ == "__main__":
                     "dia_02_extracted_ion_chromatgoram_peak_picking_and_feature_scoring.py",
                 ),
                 title="Peak Detection and Feature Scoring",
-                icon="📶",
+                icon="🔍",
             ),
             st.Page(
                 Path("content", "dia_03_feature_scoring.py"),
                 title="Feature Scoring",
-                icon="📶",
+                icon="⭐️",
             ),
             st.Page(
                 Path("content", "dia_04_statistical_validation.py"),
                 title="Statistical Validation",
-                icon="📶",
+                icon="📊",
             ),
         ],
         "Spectral Library Generation": [
