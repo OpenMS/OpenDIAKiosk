@@ -12,7 +12,7 @@
 
 [![Open Template!](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://abi-services.cs.uni-tuebingen.de/streamlit-template/)
 
-This repository contains a template app for OpenMS workflows in a web application using the **streamlit** framework. It serves as a foundation for apps ranging from simple workflows with **pyOpenMS** to complex workflows utilizing **OpenMS TOPP tools** with parallel execution. It includes solutions for handling user data and parameters in workspaces as well as deployment with docker-compose.
+This repository is based on the [streamlit-template](https://github.com/OpenMS/streamlit-template) and provides a Streamlit web app for interactive teaching of Data-Independent Acquisition (DIA) concepts as well as practical tools used in DIA analysis. 
 
 ## Features
 
@@ -34,7 +34,7 @@ To run the app locally:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/OpenMS/streamlit-template.git
+   git clone git@github.com:OpenMS/OpenDIAKiosk.git
    cd streamlit-template
    ```
 
@@ -86,7 +86,7 @@ This repository contains two Dockerfiles.
    
 3. **Clone the repository**
    ```bash
-   git clone https://github.com/OpenMS/streamlit-template.git
+   git clone git@github.com:OpenMS/OpenDIAKiosk.git
    cd streamlit-template
    ```
    
