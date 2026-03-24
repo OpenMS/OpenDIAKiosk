@@ -5,6 +5,23 @@ import pandas as pd
 from scipy.signal import savgol_filter
 import pyopenms as poms
 
+# Compatibility shim: older pyopenms releases expose `get_df` instead of
+# `to_df` on `MSChromatogram`. Provide `to_df` forwarding when missing.
+try:
+    if not hasattr(poms.MSChromatogram, "to_df") and hasattr(
+        poms.MSChromatogram, "get_df"
+    ):
+
+        def _mschromatogram_to_df(self, *args, **kwargs):
+            try:
+                return self.get_df(*args, **kwargs)
+            except TypeError:
+                return self.get_df()
+
+        poms.MSChromatogram.to_df = _mschromatogram_to_df
+except Exception:
+    pass
+
 
 def smooth_chromatogram(
     xic_df: pd.DataFrame,

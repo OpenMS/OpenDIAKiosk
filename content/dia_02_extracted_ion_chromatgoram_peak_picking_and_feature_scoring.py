@@ -41,6 +41,26 @@ from utils.dia_scoring import (
 page_setup()
 
 
+# Compatibility shim: older pyopenms releases (e.g. 3.5.0) expose
+# `get_df` instead of `to_df`. Ensure `MSExperiment.to_df` exists
+# by forwarding to `get_df` when appropriate.
+try:
+    if not hasattr(poms.MSExperiment, "to_df") and hasattr(poms.MSExperiment, "get_df"):
+
+        def _msexperiment_to_df(self, *args, **kwargs):
+            # Prefer passing through arguments; fall back to calling
+            # get_df without kwargs if the signature differs.
+            try:
+                return self.get_df(*args, **kwargs)
+            except TypeError:
+                return self.get_df()
+
+        poms.MSExperiment.to_df = _msexperiment_to_df
+except Exception:
+    # If anything unexpected happens while patching, do not crash import;
+    # callers will either have `to_df` or will handle the missing method.
+    pass
+
 st.title("Extracted Ion Chromatogram (XIC) Peak Picking and Feature Scoring")
 st.markdown(
     """
