@@ -218,13 +218,9 @@ def monitor_queue():
         col1.metric(
             "Workers",
             f"{busy_workers}/{total_workers}",
-            help="Busy workers / Total workers"
+            help="Busy workers / Total workers",
         )
-        col2.metric(
-            "Queued",
-            queued_jobs,
-            help="Jobs waiting in queue"
-        )
+        col2.metric("Queued", queued_jobs, help="Jobs waiting in queue")
 
         # Utilization progress bar
         if total_workers > 0:
@@ -468,7 +464,10 @@ def page_setup(page: str = "") -> dict[str, Any]:
                     st.session_state.workspace = Path(workspaces_dir, workspace_id)
                     st.query_params.workspace = workspace_id
                 # Check if the requested workspace is a demo workspace (online mode)
-                elif st.session_state.location == "online" and requested_workspace in available_demos:
+                elif (
+                    st.session_state.location == "online"
+                    and requested_workspace in available_demos
+                ):
                     # Create a new UUID workspace and copy demo contents
                     workspace_id = str(uuid.uuid1())
                     st.session_state.workspace = Path(workspaces_dir, workspace_id)
@@ -619,7 +618,7 @@ def render_sidebar(page: str = "") -> None:
                         selected_demo = st.selectbox(
                             "Select demo dataset",
                             available_demos,
-                            key="selected-demo-workspace"
+                            key="selected-demo-workspace",
                         )
                         if st.button("Load Demo Data"):
                             demo_path = find_demo_workspace_path(selected_demo)
@@ -639,7 +638,11 @@ def render_sidebar(page: str = "") -> None:
                                         if target.exists():
                                             target.unlink()
                                         # Copy config files so they can be modified independently
-                                        if OS_PLATFORM == "linux" and item.name != "params.json" and item.suffix != ".ini":
+                                        if (
+                                            OS_PLATFORM == "linux"
+                                            and item.name != "params.json"
+                                            and item.suffix != ".ini"
+                                        ):
                                             target.symlink_to(item.resolve())
                                         else:
                                             shutil.copy2(item, target)
@@ -655,27 +658,34 @@ def render_sidebar(page: str = "") -> None:
                         "Demo name",
                         key="save-demo-name",
                         placeholder="e.g., workshop-2024",
-                        help="Name for the demo workspace (no spaces or special characters)"
+                        help="Name for the demo workspace (no spaces or special characters)",
                     )
 
                     # Check if demo already exists
                     demo_name_clean = demo_name_input.strip() if demo_name_input else ""
-                    existing_demo = demo_exists(demo_name_clean) if demo_name_clean else False
+                    existing_demo = (
+                        demo_exists(demo_name_clean) if demo_name_clean else False
+                    )
 
                     if existing_demo:
-                        st.warning(f"Demo '{demo_name_clean}' already exists and will be overwritten.")
+                        st.warning(
+                            f"Demo '{demo_name_clean}' already exists and will be overwritten."
+                        )
                         confirm_overwrite = st.checkbox(
-                            "Confirm overwrite",
-                            key="confirm-demo-overwrite"
+                            "Confirm overwrite", key="confirm-demo-overwrite"
                         )
                     else:
                         confirm_overwrite = True  # No confirmation needed for new demos
 
-                    if st.button("Save as Demo", key="save-demo-btn", disabled=not demo_name_clean):
+                    if st.button(
+                        "Save as Demo",
+                        key="save-demo-btn",
+                        disabled=not demo_name_clean,
+                    ):
                         if not is_admin_configured():
                             st.error(
                                 "Admin not configured. Create `.streamlit/secrets.toml` with "
-                                "an `[admin]` section containing `password = \"your-password\"`"
+                                'an `[admin]` section containing `password = "your-password"`'
                             )
                         elif existing_demo and not confirm_overwrite:
                             st.error("Please confirm overwrite to continue.")
@@ -689,7 +699,7 @@ def render_sidebar(page: str = "") -> None:
                             "Admin password",
                             type="password",
                             key="admin-password-input",
-                            help="Enter the admin password to save this workspace as a demo"
+                            help="Enter the admin password to save this workspace as a demo",
                         )
 
                         col1, col2 = st.columns(2)
@@ -697,12 +707,13 @@ def render_sidebar(page: str = "") -> None:
                             if st.button("Confirm", key="confirm-save-demo"):
                                 if verify_admin_password(admin_password):
                                     success, message = save_workspace_as_demo(
-                                        st.session_state.workspace,
-                                        demo_name_clean
+                                        st.session_state.workspace, demo_name_clean
                                     )
                                     if success:
                                         st.success(message)
-                                        st.session_state["show_admin_password_dialog"] = False
+                                        st.session_state[
+                                            "show_admin_password_dialog"
+                                        ] = False
                                         time.sleep(1)
                                         st.rerun()
                                     else:
@@ -732,6 +743,14 @@ def render_sidebar(page: str = "") -> None:
                 )
             else:
                 st.session_state["spectrum_num_bins"] = 50
+            # Advanced parameters toggle (global)
+            if "advanced" not in st.session_state:
+                st.session_state["advanced"] = False
+            st.checkbox(
+                "Show advanced parameters",
+                value=st.session_state["advanced"],
+                key="advanced",
+            )
 
         with st.expander("📊 **Resource Utilization**"):
             monitor_hardware()
