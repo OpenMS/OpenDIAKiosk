@@ -163,10 +163,16 @@ with tab2:
     # Collect all files with metadata
     all_files = []
     for item in selected_workspace.rglob("*"):
-        if item.is_file() and not any(part.startswith(".") for part in item.parts):
-            rel_path = item.relative_to(selected_workspace)
-            size = item.stat().st_size
-            all_files.append((str(rel_path), size, item))
+        # Skip hidden files and files in hidden directories
+        if item.is_file() and not item.name.startswith(".") and "/.." not in str(item):
+            try:
+                rel_path = item.relative_to(selected_workspace)
+                # Check if any part of relative path starts with dot
+                if not any(part.startswith(".") for part in rel_path.parts):
+                    size = item.stat().st_size
+                    all_files.append((str(rel_path), size, item))
+            except (OSError, ValueError):
+                pass
 
     if not all_files:
         st.info("No files found in workspace")
@@ -193,6 +199,8 @@ with tab2:
                 icon = "🧬"
             elif file_ext in [".json", ".ini", ".yaml", ".yml"]:
                 icon = "⚙️"
+            elif file_ext in [".fasta", ".fa"]:
+                icon = "🧬"
             else:
                 icon = "📦"
 
