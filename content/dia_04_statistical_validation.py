@@ -1293,5 +1293,9 @@ st.markdown(
 5. **Röst HL et al.**
    OpenSWATH enables automated, targeted analysis of data-independent acquisition MS data.
    *Nat Biotechnol.* 2014;32(3):219–223. https://doi.org/10.1038/nbt.2841
+   
+6. **Reiter, L., Rinner, O., Picotti, P. et al.** mProphet: automated data          processing and statistical validation for large-scale SRM experiments. Nat Methods 8, 430–435 (2011). https://doi.org/10.1038/nmeth.1584
+
+7. **Rosenberger, G., Bludau, I., Schmitt, U. et al.** Statistical control of peptide and protein error rates in large-scale targeted data-independent acquisition analyses. Nat Methods 14, 921–927 (2017). https://doi.org/10.1038/nmeth.4398
 """
 )
