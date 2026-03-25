@@ -1,3 +1,4 @@
+import os
 import json as _json
 import time
 import traceback
@@ -32,6 +33,11 @@ with st.expander("📖 About EasyPQP In-Silico Library Generation"):
     )
 
 st.markdown("---")
+
+# Set REDEEM_PRETRAINED_MODELS_DIR env variable to use shipped pretrained models data/pretrained_models
+os.environ["REDEEM_PRETRAINED_MODELS_DIR"] = str(
+    Path("data", "pretrained_models").resolve()
+)
 
 # =============================================================================
 # SECTION 1: INPUT & OUTPUT
@@ -437,7 +443,9 @@ if st.button(
                 st.write(f"✅ Training data uploaded to: {train_data_str}")
 
             # === SET OUTPUT DIRECTORY ===
-            results_dir = Path(wf_dir, "results", "insilico").resolve()  # Ensure absolute path
+            results_dir = Path(
+                wf_dir, "results", "insilico"
+            ).resolve()  # Ensure absolute path
             results_dir.mkdir(parents=True, exist_ok=True)
             output_filename = (
                 Path(output_file).name
@@ -578,23 +586,25 @@ if st.button(
             # Poll to check if workflow is still running
             # When done (PID dir removed), automatically rerun to show results
             pid_dir = wf.executor.pid_dir
-            
+
             # Show a placeholder while waiting
             progress_placeholder = st.empty()
-            
+
             # Poll for workflow completion (check every 2 seconds, timeout after 15 minutes)
             max_wait_time = 15 * 60  # 15 minutes
             start_time = time.time()
             poll_interval = 2  # seconds
-            
+
             while time.time() - start_time < max_wait_time:
                 if not pid_dir.exists():
                     # Workflow finished! PID directory was cleaned up
-                    progress_placeholder.info("✅ Workflow completed! Refreshing to show results...")
+                    progress_placeholder.info(
+                        "✅ Workflow completed! Refreshing to show results..."
+                    )
                     time.sleep(1)  # Brief pause to ensure files are written
                     st.rerun()  # Automatically rerun to show download buttons
                     break
-                
+
                 # Still running - show progress
                 elapsed = int(time.time() - start_time)
                 progress_placeholder.info(f"⏳ Processing... ({elapsed}s elapsed)")
@@ -629,14 +639,14 @@ if easypqp_workspace.exists() and results_dir.exists():
     all_tsv_files = list(results_dir.glob("*.tsv"))
     all_html_files = list(results_dir.glob("*.html"))
     all_parquet_files = list(results_dir.glob("*.parquet"))
-    
+
     tsv_files = [f for f in all_tsv_files if f.exists()]
     html_files = [f for f in all_html_files if f.exists()]
     report_files = [f for f in all_parquet_files if f.exists()]
 
     if tsv_files or html_files or report_files:
         st.success("✅ Results generated! Download below.")
-        
+
         # TSV Library files
         if tsv_files:
             st.write("**📊 TSV Spectral Libraries:**")
@@ -659,7 +669,7 @@ if easypqp_workspace.exists() and results_dir.exists():
                             )
                 except Exception as e:
                     st.warning(f"⚠️ Could not access {tsv_file.name}: {e}")
-        
+
         # HTML Report files
         if html_files:
             st.write("**📈 HTML Reports:**")
@@ -682,7 +692,7 @@ if easypqp_workspace.exists() and results_dir.exists():
                             )
                 except Exception as e:
                     st.warning(f"⚠️ Could not access {html_file.name}: {e}")
-        
+
         # Parquet files
         if report_files:
             st.write("**📋 Raw Data (Parquet):**")
@@ -705,36 +715,47 @@ if easypqp_workspace.exists() and results_dir.exists():
                             )
                 except Exception as e:
                     st.warning(f"⚠️ Could not access {parquet_file.name}: {e}")
-        
+
         # === CLEAR RESULTS BUTTON ===
         st.markdown("---")
         st.subheader("🗑️ Clear Results")
-        
+
         col1, col2 = st.columns([3, 1])
         with col2:
-            if st.button("🗑️ Clear Results", key="clear_results_btn", use_container_width=True):
+            if st.button(
+                "🗑️ Clear Results", key="clear_results_btn", use_container_width=True
+            ):
                 st.session_state.clear_results_confirm = True
-        
+
         # Show confirmation modal if user clicked clear
         if st.session_state.get("clear_results_confirm", False):
             st.markdown("---")
-            st.warning("⚠️ **WARNING: This will permanently delete the following files:**")
-            
+            st.warning(
+                "⚠️ **WARNING: This will permanently delete the following files:**"
+            )
+
             # List all files that will be deleted
             all_files = tsv_files + html_files + report_files
             for file in all_files:
-                st.write(f"  • `{file.name}` ({file.stat().st_size / (1024 * 1024):.1f} MB)")
-            
+                st.write(
+                    f"  • `{file.name}` ({file.stat().st_size / (1024 * 1024):.1f} MB)"
+                )
+
             st.markdown("")
             col1, col2, col3 = st.columns([2, 1, 1])
-            
+
             with col2:
                 if st.button("❌ Cancel", key="cancel_clear", use_container_width=True):
                     st.session_state.clear_results_confirm = False
                     st.rerun()
-            
+
             with col3:
-                if st.button("🗑️ Delete", key="confirm_clear", type="secondary", use_container_width=True):
+                if st.button(
+                    "🗑️ Delete",
+                    key="confirm_clear",
+                    type="secondary",
+                    use_container_width=True,
+                ):
                     try:
                         deleted_count = 0
                         for file in all_files:
@@ -743,16 +764,18 @@ if easypqp_workspace.exists() and results_dir.exists():
                                 deleted_count += 1
                             except Exception as e:
                                 st.warning(f"Could not delete {file.name}: {e}")
-                        
+
                         # Clear confirmation state
                         st.session_state.clear_results_confirm = False
-                        
+
                         # Show success message
                         st.success(f"✅ Successfully deleted {deleted_count} file(s)!")
-                        st.info("The page will refresh to show the updated results section.")
+                        st.info(
+                            "The page will refresh to show the updated results section."
+                        )
                         time.sleep(1)
                         st.rerun()
-                        
+
                     except Exception as e:
                         st.error(f"❌ Error clearing results: {e}")
     else:
