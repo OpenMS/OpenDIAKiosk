@@ -6,6 +6,7 @@ import streamlit as st
 from src.common.common import page_setup, save_params
 from src.workflow.ParameterManager import ParameterManager
 from src.workflow.StreamlitUI import StreamlitUI
+from src.workflow.PyProphet import PyProphetCLI
 
 # OpenSwath Configuration params
 
@@ -122,7 +123,6 @@ if st.button("Save OpenSwath parameters to workspace params.json"):
 
 # --- PyProphet params link / info
 st.markdown("---")
-st.subheader("PyProphet Parameters")
-st.markdown(
-    "Refer to the PyProphet CLI for scoring and infer parameters; these are configured separately."
-)
+# Integrate PyProphet UI (passed as None in config page; available during workflow)
+py = PyProphetCLI(pm, workspace_dir, executor=None, logger=None)
+py.ui()
