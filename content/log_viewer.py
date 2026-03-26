@@ -73,7 +73,31 @@ def discover_roots() -> List[Path]:
 root_choices = discover_roots()
 if root_choices:
     root_strs = [str(p) for p in root_choices]
-    selected_root = st.selectbox("Workspaces root directory", root_strs)
+
+    # Try to detect current workspace for smart default
+    try:
+        current_workspace = st.session_state.get("workspace", None)
+        default_root_idx = 0
+
+        # If current workspace exists, try to find the root that contains it
+        if current_workspace:
+            current_ws_path = Path(current_workspace).resolve()
+            for i, root_choice in enumerate(root_choices):
+                root_path = Path(root_choice).resolve()
+                # Check if this root is a parent of the current workspace
+                try:
+                    current_ws_path.relative_to(root_path)
+                    default_root_idx = i
+                    break
+                except ValueError:
+                    # current_ws_path is not relative to root_path
+                    pass
+    except Exception:
+        default_root_idx = 0
+
+    selected_root = st.selectbox(
+        "Workspaces root directory", root_strs, index=default_root_idx
+    )
     base_dir = Path(selected_root)
 else:
     default_root = Path(st.session_state.settings.get("workspaces_dir", ".."))
@@ -91,8 +115,32 @@ if not tool_dirs:
     )
     st.stop()
 
+# Determine default tool/workspace folder based on current workspace
+tool_names = [p.name for p in tool_dirs]
+default_tool_idx = 0
+
+try:
+    current_workspace = st.session_state.get("workspace", None)
+    if current_workspace:
+        current_ws_path = Path(current_workspace).resolve()
+        # Extract the workspace name (e.g., "default" from the path)
+        for i, tool_dir in enumerate(tool_dirs):
+            tool_path = tool_dir.resolve()
+            try:
+                # Check if current workspace is under this tool directory
+                current_ws_path.relative_to(tool_path)
+                default_tool_idx = i
+                break
+            except ValueError:
+                # Also check if the tool directory name matches the workspace name
+                if tool_dir.name in str(current_ws_path):
+                    default_tool_idx = i
+                    break
+except Exception:
+    pass
+
 tool_choice = st.selectbox(
-    "Select tool / workspace folder", [p.name for p in tool_dirs]
+    "Select tool / workspace folder", tool_names, index=default_tool_idx
 )
 selected_tool_dir = next((p for p in tool_dirs if p.name == tool_choice), tool_dirs[0])
 logs_dir = selected_tool_dir / "logs"
