@@ -386,11 +386,43 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
             key="plot_height",
         )
 
+    # Runs selection + clear button
+    ctl_col1, ctl_col2 = st.columns([3, 1])
+    tmp_path_map = dict(st.session_state.xic_tmp_paths)  # {display_name: tmp_path}
+    all_file_names = list(tmp_path_map.keys())
+    with ctl_col1:
+        runs_sel = st.multiselect(
+            "Select runs to display",
+            options=all_file_names,
+            default=all_file_names,
+            key="runs_sel",
+            help="Choose which uploaded runs should be rendered.",
+        )
+    with ctl_col2:
+        clear_btn = st.button(
+            "🗑️ Clear loaded XIC files",
+            type="secondary",
+            disabled=(not bool(all_file_names)),
+            help="Remove all uploaded XIC files from the workspace and clear the viewer.",
+        )
+        if clear_btn:
+            fileupload.remove_all_xic_files()
+            st.rerun()
+
     # -------------------------------------------------------------------------
     # Render chromatogram panels
 
+    # Filter file list by user selection
     tmp_path_map = dict(st.session_state.xic_tmp_paths)  # {display_name: tmp_path}
-    file_names = list(tmp_path_map.keys())
+    file_names = [
+        f
+        for f in list(tmp_path_map.keys())
+        if f in st.session_state.get("runs_sel", list(tmp_path_map.keys()))
+    ]
+
+    if not file_names:
+        st.warning("No runs selected — pick runs from 'Select runs to display'.")
+        st.stop()
 
     # Tile into rows of n_cols
     rows = [file_names[i : i + n_cols] for i in range(0, len(file_names), n_cols)]
