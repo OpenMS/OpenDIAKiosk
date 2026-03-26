@@ -393,7 +393,7 @@ with st.expander("⚙️ Advanced In-Silico Settings", expanded=False):
         rt_scale = st.number_input(
             "RT Scale Factor",
             min_value=0.0,
-            value=100.0,
+            value=1.0,
             step=1.0,
             key="adv_rt_scale",
             help="RT output scaling factor (e.g. `100.0` converts 0–1 range to 0–100).",
