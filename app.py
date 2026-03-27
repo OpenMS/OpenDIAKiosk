@@ -94,7 +94,7 @@ if __name__ == "__main__":
             st.Page(
                 Path("content", "openswath_configuration.py"),
                 title="Configuration",
-                icon="⚖️",
+                icon="⚙️",
             ),
             st.Page(
                 Path("content", "xic_chromatogram_viewer.py"),
