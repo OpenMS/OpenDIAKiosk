@@ -1222,6 +1222,152 @@ class StreamlitUI:
                     cols = st.columns(num_cols)
         self.parameter_manager.save_parameters()
 
+    def render_structured_config(
+        self,
+        config: dict,
+        key_prefix: str = "config",
+        custom_renderers: dict = None,
+        default_open_sections: list = None,
+    ) -> None:
+        """
+        Render a structured JSON config schema into Streamlit widgets.
+
+        Args:
+            config: Structured config dictionary. Expected to follow the
+                `easypqp_insilico_structured_config.json` layout with a top-level
+                `sections` mapping where each section contains `options`.
+            key_prefix: Prefix used to construct session_state parameter keys.
+            custom_renderers: Optional dict mapping option keys (section.option)
+                to callables taking (full_key, option_def) and rendering custom UI.
+                The callable should set values into `st.session_state` using the
+                provided `full_key` (already prefixed by `parameter_manager.param_prefix`).
+            default_open_sections: List of section names to expand by default.
+
+        This method is intentionally flexible: by default it will map simple
+        value types (boolean/int/float/string/list) to appropriate widgets via
+        `input_widget`. For complex or highly custom fields (e.g., static_mods,
+        variable_mods) provide an entry in `custom_renderers` to render bespoke UI.
+        """
+        if custom_renderers is None:
+            custom_renderers = {}
+        if default_open_sections is None:
+            default_open_sections = []
+
+        sections = config.get("sections", {})
+        for section_name, section_def in sections.items():
+            opts = section_def.get("options", {})
+            expanded = section_name in default_open_sections
+            with st.expander(section_name, expanded=expanded):
+                # show section description if present
+                if isinstance(section_def, dict) and section_def.get("description"):
+                    st.caption(section_def.get("description"))
+                # iterate options
+                for opt_name, opt_def in opts.items():
+                    display_name = opt_def.get("description", opt_name)
+                    # construct a stable session key for this option
+                    short_key = f"{key_prefix}:{section_name}:{opt_name}"
+                    full_key = f"{self.parameter_manager.param_prefix}{short_key}"
+
+                    # custom renderer override
+                    renderer_key = f"{section_name}.{opt_name}"
+                    if renderer_key in custom_renderers:
+                        try:
+                            custom_renderers[renderer_key](full_key, opt_def)
+                        except Exception as e:
+                            st.error(f"Custom renderer failed for {renderer_key}: {e}")
+                        continue
+
+                    # derive default/value
+                    value = opt_def.get("value", opt_def.get("default"))
+                    vtype = opt_def.get("value_type", "string")
+
+                    # Map schema value_type to widget_type
+                    if vtype in ("boolean", "bool"):
+                        st.checkbox(
+                            display_name,
+                            value=bool(value) if value is not None else False,
+                            key=full_key,
+                            help=opt_def.get("description"),
+                        )
+                    elif vtype in ("integer", "int"):
+                        default = int(value) if value is not None else 0
+                        st.number_input(
+                            display_name,
+                            value=default,
+                            key=full_key,
+                            help=opt_def.get("description"),
+                        )
+                    elif vtype in ("float", "double"):
+                        default = float(value) if value is not None else 0.0
+                        st.number_input(
+                            display_name,
+                            value=default,
+                            key=full_key,
+                            help=opt_def.get("description"),
+                        )
+                    elif vtype.startswith("array") or vtype.startswith("list"):
+                        # try to use valid_strings if present
+                        valid = opt_def.get("valid_strings") or opt_def.get(
+                            "allowed_values"
+                        )
+                        if valid and isinstance(valid, list):
+                            # multiselect
+                            default = (
+                                value
+                                if isinstance(value, list)
+                                else (
+                                    value.split("\n") if isinstance(value, str) else []
+                                )
+                            )
+                            st.multiselect(
+                                display_name,
+                                options=valid,
+                                default=default,
+                                key=full_key,
+                                help=opt_def.get("description"),
+                            )
+                        else:
+                            # freeform list textarea
+                            text_val = (
+                                "\n".join(str(v) for v in value)
+                                if isinstance(value, list)
+                                else (value or "")
+                            )
+                            st.text_area(
+                                display_name,
+                                value=text_val,
+                                key=full_key,
+                                help=opt_def.get("description"),
+                            )
+                    elif vtype.startswith("object"):
+                        # For simple dicts like static_mods (string->float) provide a textarea or JSON editor
+                        # If value is a dict, show as JSON and allow editing
+                        if isinstance(value, dict):
+                            st.text_area(
+                                display_name,
+                                value=json.dumps(value, indent=2),
+                                key=full_key,
+                                help=opt_def.get("description"),
+                            )
+                        else:
+                            st.text_input(
+                                display_name,
+                                value=value if value is not None else "",
+                                key=full_key,
+                                help=opt_def.get("description"),
+                            )
+                    else:
+                        # default to text input
+                        st.text_input(
+                            display_name,
+                            value=value if value is not None else "",
+                            key=full_key,
+                            help=opt_def.get("description"),
+                        )
+
+        # persist parameters
+        self.parameter_manager.save_parameters()
+
     def zip_and_download_files(self, directory: str):
         """
         Creates a zip archive of all files within a specified directory,
@@ -1318,7 +1464,7 @@ class StreamlitUI:
             self.zip_and_download_files(Path(self.workflow_dir, "input-files"))
 
     def parameter_section(self, custom_parameter_function) -> None:
-        st.toggle("Show advanced parameters", value=False, key="advanced")
+        # The global advanced toggle lives in src/common/common.py — do not recreate it here.
 
         # Display threads configuration for local mode only
         if not st.session_state.settings.get("online_deployment", False):
