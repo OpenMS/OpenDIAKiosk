@@ -27,8 +27,10 @@ def save_uploaded_mzML(uploaded_files: list[bytes]) -> None:
         return
     # Write files from buffer to workspace mzML directory, add to selected files
     for f in uploaded_files:
-        if f.name not in [f.name for f in mzML_dir.iterdir()] and f.name.endswith(
-            "mzML"
+        existing_names = [p.name for p in mzML_dir.iterdir() if p.is_file()]
+        # allow uncompressed mzML and gz-compressed mzML
+        if f.name not in existing_names and f.name.lower().endswith(
+            (".mzml", ".mzml.gz")
         ):
             with open(Path(mzML_dir, f.name), "wb") as fh:
                 fh.write(f.getbuffer())
@@ -50,11 +52,16 @@ def copy_local_mzML_files_from_directory(
     """
     mzML_dir = Path(st.session_state.workspace, "mzML-files")
     # Check if local directory contains mzML files, if not exit early
-    if not any(Path(local_mzML_directory).glob("*.mzML")):
+    # support both .mzML and .mzML.gz files
+    if not any(Path(local_mzML_directory).glob("*.mzML")) and not any(
+        Path(local_mzML_directory).glob("*.mzML.gz")
+    ):
         st.warning("No mzML files found in specified folder.")
         return
     # Copy all mzML files to workspace mzML directory, add to selected files
-    files = Path(local_mzML_directory).glob("*.mzML")
+    files = list(Path(local_mzML_directory).glob("*.mzML")) + list(
+        Path(local_mzML_directory).glob("*.mzML.gz")
+    )
     for f in files:
         if make_copy:
             shutil.copy(f, Path(mzML_dir, f.name))
@@ -85,7 +92,10 @@ def load_example_mzML_files() -> None:
     """
     mzML_dir = Path(st.session_state.workspace, "mzML-files")
     # Copy or symlink files from example-data/mzML to workspace mzML directory
-    for f in Path("example-data", "mzML").glob("*.mzML"):
+    example_files = list(Path("example-data", "mzML").glob("*.mzML")) + list(
+        Path("example-data", "mzML").glob("*.mzML.gz")
+    )
+    for f in example_files:
         target = mzML_dir / f.name
         if OS_PLATFORM == "linux":
             if target.exists():
@@ -109,14 +119,47 @@ def remove_selected_mzML_files(to_remove: list[str], params: dict) -> dict:
         dict: parameters with updated mzML files
     """
     mzML_dir = Path(st.session_state.workspace, "mzML-files")
-    # remove all given files from mzML workspace directory and selected files
-    for f in to_remove:
-        Path(mzML_dir, f + ".mzML").unlink()
-    for k, v in params.items():
-        if isinstance(v, list):
-            if f in v:
-                params[k].remove(f)
-    st.success("Selected mzML files removed!")
+    # remove all matching files from mzML workspace directory and selected params
+    removed_any = False
+    for sel in to_remove:
+        # match by exact name or by stem (handles .mzML and .mzML.gz)
+        for p in mzML_dir.iterdir():
+            if not p.is_file():
+                continue
+            if (
+                p.name == sel
+                or p.stem == sel
+                or p.name == f"{sel}.mzML"
+                or p.name == f"{sel}.mzML.gz"
+            ):
+                try:
+                    p.unlink()
+                    removed_any = True
+                except Exception:
+                    st.warning(f"Could not remove {p.name}")
+
+        # clean up params lists (remove entries matching file base or name)
+        for k, v in params.items():
+            if isinstance(v, list):
+                # remove any matching entries
+                to_rm = [
+                    x
+                    for x in v
+                    if x == sel
+                    or x == f"{sel}.mzML"
+                    or x == f"{sel}.mzML.gz"
+                    or Path(x).stem == sel
+                ]
+                for x in to_rm:
+                    try:
+                        params[k].remove(x)
+                    except ValueError:
+                        pass
+
+    if removed_any:
+        st.success("Selected mzML files removed!")
+    else:
+        st.info("No matching mzML files were removed.")
     return params
 
 
