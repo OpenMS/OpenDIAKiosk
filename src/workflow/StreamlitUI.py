@@ -38,6 +38,11 @@ class StreamlitUI:
         self.parameter_manager = parameter_manager
         self.params = self.parameter_manager.get_parameters_from_json()
 
+    def _current_params(self) -> dict:
+        """Load the latest saved params from disk."""
+        self.params = self.parameter_manager.get_parameters_from_json()
+        return self.params
+
     @st.fragment
     def upload_widget(
         self,
@@ -363,8 +368,9 @@ class StreamlitUI:
                 external_files_list = f.read().splitlines()
             # Only make files available that still exist
             options += [f for f in external_files_list if os.path.exists(f)]
-        if (key in self.params.keys()) and isinstance(self.params[key], list):
-            self.params[key] = [f for f in self.params[key] if f in options]
+        current_params = self._current_params()
+        if (key in current_params.keys()) and isinstance(current_params[key], list):
+            current_params[key] = [f for f in current_params[key] if f in options]
 
         widget_type = "multiselect" if multiple else "selectbox"
         self.input_widget(
@@ -498,8 +504,10 @@ class StreamlitUI:
             else:
                 return input
 
-        if key in self.params.keys():
-            value = self.params[key]
+        current_params = self._current_params()
+
+        if key in current_params.keys():
+            value = current_params[key]
         else:
             value = default
             # catch case where options are given but default is None
@@ -860,14 +868,16 @@ class StreamlitUI:
                 p["sections"] = ":".join(p["key"].split(":1:")[1].split(":")[:-1])
             params.append(p)
 
+        current_params = self._current_params()
+
         # for each parameter in params_decoded
         # if a parameter with custom default value exists, use that value
-        # else check if the parameter is already in self.params, if yes take the value from self.params
+        # else check if the parameter is already in params.json, if yes take the saved value
         for p in params:
             name = p["key"].split(":1:")[1]
-            if topp_tool_name in self.params:
-                if name in self.params[topp_tool_name]:
-                    p["value"] = self.params[topp_tool_name][name]
+            if topp_tool_name in current_params:
+                if name in current_params[topp_tool_name]:
+                    p["value"] = current_params[topp_tool_name][name]
                 elif name in custom_defaults:
                     p["value"] = custom_defaults[name]
             elif name in custom_defaults:
@@ -931,6 +941,76 @@ class StreamlitUI:
                         else None
                     ),
                 )
+
+        def _extract_file_types(valid_strings: list[str]) -> list[str]:
+            file_types = []
+            for value in valid_strings:
+                value = str(value).strip()
+                if value.startswith("*.") and len(value) > 2:
+                    file_types.append(value[2:])
+            return file_types
+
+        def _looks_like_file_pattern(value: Any) -> bool:
+            return isinstance(value, str) and value.startswith("*.") and len(value) > 2
+
+        def _is_string_file_input_param(p: dict) -> bool:
+            if not isinstance(p.get("value"), str):
+                return False
+
+            short_name = p["key"].split(":")[-1].lower()
+            valid_strings = p.get("valid_strings", [])
+
+            if short_name.endswith("_file") or short_name in {
+                "rt_norm",
+                "linear_irt_file",
+                "nonlinear_irt_file",
+            }:
+                return True
+
+            if valid_strings and all(_looks_like_file_pattern(v) for v in valid_strings):
+                return True
+
+            return False
+
+        def _render_string_file_input(col, key: str, name: str, p: dict) -> None:
+            short_name = p["key"].split(":")[-1]
+            upload_dir = Path(
+                self.workflow_dir,
+                "input-files",
+                "topp-aux",
+                topp_tool_name,
+                short_name,
+            )
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
+            uploader_key = f"{key}__upload"
+            clear_key = f"{key}__clear"
+            file_types = _extract_file_types(p.get("valid_strings", []))
+
+            uploaded = col.file_uploader(
+                name,
+                type=file_types or None,
+                help=p["description"],
+                key=uploader_key,
+            )
+
+            if uploaded is not None:
+                dest = upload_dir / uploaded.name
+                with open(dest, "wb") as fh:
+                    fh.write(uploaded.getbuffer())
+                st.session_state[key] = str(dest.resolve())
+
+            current_value = st.session_state.get(key, p.get("value", ""))
+            if isinstance(current_value, str) and current_value and not _looks_like_file_pattern(current_value):
+                current_path = Path(current_value)
+                label = current_path.name if current_path.name else current_value
+                if current_path.exists():
+                    col.caption(f"Current file: `{label}`")
+                else:
+                    col.caption(f"Current value: `{current_value}`")
+                if col.button("Clear file", key=clear_key):
+                    st.session_state[key] = ""
+                    st.rerun()
 
         def display_TOPP_params(params: dict, num_cols):
             """Displays individual TOPP parameters in given number of columns"""
@@ -1004,6 +1084,13 @@ class StreamlitUI:
 
                     # strings
                     elif isinstance(p["value"], str):
+                        if _is_string_file_input_param(p):
+                            _render_string_file_input(cols[i], key, name, p)
+                            i += 1
+                            if i == num_cols:
+                                i = 0
+                                cols = st.columns(num_cols)
+                            continue
                         # string options
                         if p["valid_strings"]:
                             # If current value not in valid options, prepend it so it's selectable
@@ -1253,6 +1340,7 @@ class StreamlitUI:
         if default_open_sections is None:
             default_open_sections = []
 
+        current_params = self._current_params()
         sections = config.get("sections", {})
         for section_name, section_def in sections.items():
             opts = section_def.get("options", {})
@@ -1277,8 +1365,134 @@ class StreamlitUI:
                             st.error(f"Custom renderer failed for {renderer_key}: {e}")
                         continue
 
+                    # If this option is itself a nested options group (e.g., enzyme),
+                    # render its sub-options as separate widgets.
+                    if isinstance(opt_def, dict) and "options" in opt_def:
+                        # title/description for the nested group
+                        st.markdown(f"**{display_name}**")
+                        if opt_def.get("description"):
+                            st.caption(opt_def.get("description"))
+
+                        nested_opts = opt_def.get("options", {})
+                        for nested_name, nested_def in nested_opts.items():
+                            nested_display = nested_def.get("description", nested_name)
+                            nested_short = (
+                                f"{key_prefix}:{section_name}:{opt_name}:{nested_name}"
+                            )
+                            nested_full = (
+                                f"{self.parameter_manager.param_prefix}{nested_short}"
+                            )
+
+                            nested_renderer_key = (
+                                f"{section_name}.{opt_name}.{nested_name}"
+                            )
+                            if nested_renderer_key in custom_renderers:
+                                try:
+                                    custom_renderers[nested_renderer_key](
+                                        nested_full, nested_def
+                                    )
+                                except Exception as e:
+                                    st.error(
+                                        f"Custom renderer failed for {nested_renderer_key}: {e}"
+                                    )
+                                continue
+
+                            n_value = current_params.get(
+                                nested_short,
+                                nested_def.get("value", nested_def.get("default")),
+                            )
+                            n_vtype = nested_def.get("value_type", "string")
+
+                            # reuse mapping logic for nested options
+                            if n_vtype in ("boolean", "bool"):
+                                st.checkbox(
+                                    nested_display,
+                                    value=bool(n_value)
+                                    if n_value is not None
+                                    else False,
+                                    key=nested_full,
+                                    help=nested_def.get("description"),
+                                )
+                            elif n_vtype in ("integer", "int"):
+                                default = int(n_value) if n_value is not None else 0
+                                st.number_input(
+                                    nested_display,
+                                    value=default,
+                                    key=nested_full,
+                                    help=nested_def.get("description"),
+                                )
+                            elif n_vtype in ("float", "double"):
+                                default = float(n_value) if n_value is not None else 0.0
+                                st.number_input(
+                                    nested_display,
+                                    value=default,
+                                    key=nested_full,
+                                    help=nested_def.get("description"),
+                                )
+                            elif str(n_vtype).startswith("array") or str(
+                                n_vtype
+                            ).startswith("list"):
+                                valid = nested_def.get(
+                                    "valid_strings"
+                                ) or nested_def.get("allowed_values")
+                                if valid and isinstance(valid, list):
+                                    default = (
+                                        n_value
+                                        if isinstance(n_value, list)
+                                        else (
+                                            n_value.split("\n")
+                                            if isinstance(n_value, str)
+                                            else []
+                                        )
+                                    )
+                                    st.multiselect(
+                                        nested_display,
+                                        options=valid,
+                                        default=default,
+                                        key=nested_full,
+                                        help=nested_def.get("description"),
+                                    )
+                                else:
+                                    text_val = (
+                                        "\n".join(str(v) for v in n_value)
+                                        if isinstance(n_value, list)
+                                        else (n_value or "")
+                                    )
+                                    st.text_area(
+                                        nested_display,
+                                        value=text_val,
+                                        key=nested_full,
+                                        help=nested_def.get("description"),
+                                    )
+                            elif str(n_vtype).startswith("object"):
+                                if isinstance(n_value, dict):
+                                    st.text_area(
+                                        nested_display,
+                                        value=json.dumps(n_value, indent=2),
+                                        key=nested_full,
+                                        help=nested_def.get("description"),
+                                    )
+                                else:
+                                    st.text_input(
+                                        nested_display,
+                                        value=n_value if n_value is not None else "",
+                                        key=nested_full,
+                                        help=nested_def.get("description"),
+                                    )
+                            else:
+                                st.text_input(
+                                    nested_display,
+                                    value=n_value if n_value is not None else "",
+                                    key=nested_full,
+                                    help=nested_def.get("description"),
+                                )
+                        # finished nested options
+                        continue
+
                     # derive default/value
-                    value = opt_def.get("value", opt_def.get("default"))
+                    value = current_params.get(
+                        short_key, opt_def.get("value", opt_def.get("default"))
+                    )
                     vtype = opt_def.get("value_type", "string")
 
                     # Map schema value_type to widget_type
