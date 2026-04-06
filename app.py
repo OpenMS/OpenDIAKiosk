@@ -68,6 +68,13 @@ if __name__ == "__main__":
                 icon="📊",
             ),
         ],
+        "Proteome Database": [
+            st.Page(
+                Path("content", "fasta_database.py"),
+                title="FASTA Database",
+                icon="📖",
+            ),
+        ],
         "Spectral Library Generation": [
             st.Page(
                 Path("content", "insilico_spectral_library_generation.py"),
