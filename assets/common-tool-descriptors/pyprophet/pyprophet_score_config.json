@@ -1,0 +1,580 @@
+{
+  "meta": {
+    "tool": "PyProphet",
+    "command": "pyprophet score",
+    "version_from_help": "3.0.0",
+    "schema_kind": "command_schema_with_values",
+    "source": "User-provided `pyprophet score --helphelp` output",
+    "summary": "Conduct semi-supervised learning and error-rate estimation for MS1, MS2 and transition-level data.",
+    "value_field_policy": "`default` preserves the CLI default from --help; `value` is the currently selected value for this config template; `is_set` indicates whether the value is explicitly overridden."
+  },
+  "notes": [
+    {
+      "topic": "HistGradientBoosting threading",
+      "description": "When using classifier=HistGradientBoosting, the OMP_NUM_THREADS environment variable controls OpenMP thread usage. The CLI may set it automatically, but explicitly setting it before launch gives better control."
+    }
+  ],
+  "sections": {
+    "io": {
+      "description": "Input/output files and external weights.",
+      "options": {
+        "in": {
+          "cli_flags": [
+            "--in"
+          ],
+          "value_type": "path",
+          "required": true,
+          "default": null,
+          "description": "PyProphet input file.",
+          "accepted_formats": [
+            ".osw",
+            ".parquet",
+            ".tsv"
+          ],
+          "value": null,
+          "is_set": false
+        },
+        "out": {
+          "cli_flags": [
+            "--out"
+          ],
+          "value_type": "path",
+          "required": false,
+          "default": null,
+          "description": "PyProphet output file. Must use the same format as the input file.",
+          "accepted_formats": [
+            ".osw",
+            ".parquet",
+            ".tsv"
+          ],
+          "constraints": [
+            "Must be the same format as the input file."
+          ],
+          "value": null,
+          "is_set": false
+        },
+        "apply_weights": {
+          "cli_flags": [
+            "--apply_weights"
+          ],
+          "value_type": "path",
+          "required": false,
+          "default": null,
+          "description": "Apply PyProphet score weights file (*.csv/*.bin) instead of running semi-supervised learning.",
+          "accepted_formats": [
+            ".csv",
+            ".bin"
+          ],
+          "value": null,
+          "is_set": false
+        }
+      }
+    },
+    "semi_supervised_learning": {
+      "description": "Options controlling training, cross-validation, and feature preprocessing.",
+      "options": {
+        "subsample_ratio": {
+          "cli_flags": [
+            "--subsample_ratio"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 1.0,
+          "description": "Subsampling ratio for large data. Use values <1.0 to subsample precursors for semi-supervised learning; learned weights are then applied to the full dataset.",
+          "value": 1.0,
+          "is_set": false
+        },
+        "classifier": {
+          "cli_flags": [
+            "--classifier"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "XGBoost",
+          "allowed_values": [
+            "LDA",
+            "SVM",
+            "XGBoost",
+            "HistGradientBoosting"
+          ],
+          "description": "Classifier used for semi-supervised learning.",
+          "value": "XGBoost",
+          "is_set": false
+        },
+        "autotune": {
+          "cli_flags": [
+            "--autotune",
+            "--no-autotune"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Autotune hyperparameters for XGBoost, SVM, or HistGradientBoosting.",
+          "value": false,
+          "is_set": false
+        },
+        "xeval_fraction": {
+          "cli_flags": [
+            "--xeval_fraction"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.5,
+          "description": "Data fraction used for cross-validation of the semi-supervised learning step.",
+          "value": 0.5,
+          "is_set": false
+        },
+        "xeval_num_iter": {
+          "cli_flags": [
+            "--xeval_num_iter"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 10,
+          "description": "Number of cross-validation iterations for the semi-supervised learning step.",
+          "value": 10,
+          "is_set": false
+        },
+        "ss_initial_fdr": {
+          "cli_flags": [
+            "--ss_initial_fdr"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.15,
+          "description": "Initial FDR cutoff for best-scoring targets.",
+          "value": 0.15,
+          "is_set": false
+        },
+        "ss_iteration_fdr": {
+          "cli_flags": [
+            "--ss_iteration_fdr"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.05,
+          "description": "Iteration FDR cutoff for best-scoring targets.",
+          "value": 0.05,
+          "is_set": false
+        },
+        "ss_num_iter": {
+          "cli_flags": [
+            "--ss_num_iter"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 10,
+          "description": "Number of semi-supervised learning iterations.",
+          "value": 10,
+          "is_set": false
+        },
+        "ss_main_score": {
+          "cli_flags": [
+            "--ss_main_score"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "auto",
+          "description": "Main score used to start semi-supervised learning. Default 'auto' performs dynamic main-score selection per iteration. A fixed score name such as 'var_xcorr_shape' can also be provided.",
+          "value": "auto",
+          "is_set": false
+        },
+        "ss_score_filter": {
+          "cli_flags": [
+            "--ss_score_filter"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": null,
+          "description": "Specify which scores should be used for scoring. Can also use predefined profiles such as 'metabolomics', or a comma-separated list like 'var_ms1_xcorr_coelution,var_library_corr,var_xcorr_coelution'.",
+          "value": null,
+          "is_set": false
+        },
+        "ss_scale_features": {
+          "cli_flags": [
+            "--ss_scale_features",
+            "--no-ss_scale_features"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Scale or standardize features to unit variance before semi-supervised learning.",
+          "value": false,
+          "is_set": false
+        },
+        "group_id": {
+          "cli_flags": [
+            "--group_id"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "group_id",
+          "description": "Group identifier for calculation of statistics.",
+          "value": "group_id",
+          "is_set": false
+        }
+      }
+    },
+    "statistics_and_fdr": {
+      "description": "Options for p-value, pi0, and local FDR estimation.",
+      "options": {
+        "parametric": {
+          "cli_flags": [
+            "--parametric",
+            "--no-parametric"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Use parametric estimation of p-values.",
+          "value": false,
+          "is_set": false
+        },
+        "pfdr": {
+          "cli_flags": [
+            "--pfdr",
+            "--no-pfdr"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Compute positive false discovery rate (pFDR) instead of FDR.",
+          "value": false,
+          "is_set": false
+        },
+        "pi0_lambda": {
+          "cli_flags": [
+            "--pi0_lambda"
+          ],
+          "value_type": "array[float]",
+          "required": false,
+          "default": [
+            0.1,
+            0.5,
+            0.05
+          ],
+          "description": "Controls non-parametric p-value estimation. Either specify [start, end, steps], e.g. [0.1, 1.0, 0.1], or a fixed value as [0.4, 0, 0].",
+          "expected_length": 3,
+          "value": [
+            0.1,
+            0.5,
+            0.05
+          ],
+          "is_set": false
+        },
+        "pi0_method": {
+          "cli_flags": [
+            "--pi0_method"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "bootstrap",
+          "allowed_values": [
+            "smoother",
+            "bootstrap"
+          ],
+          "description": "Method for choosing the tuning parameter in pi0 estimation.",
+          "value": "bootstrap",
+          "is_set": false
+        },
+        "pi0_smooth_df": {
+          "cli_flags": [
+            "--pi0_smooth_df"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 3,
+          "description": "Degrees of freedom for the smoother when estimating pi0.",
+          "value": 3,
+          "is_set": false
+        },
+        "pi0_smooth_log_pi0": {
+          "cli_flags": [
+            "--pi0_smooth_log_pi0",
+            "--no-pi0_smooth_log_pi0"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Apply the smoother to log(pi0) values during estimation.",
+          "value": false,
+          "is_set": false
+        },
+        "lfdr_truncate": {
+          "cli_flags": [
+            "--lfdr_truncate",
+            "--no-lfdr_truncate"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "If true, local FDR values > 1 are set to 1.",
+          "value": true,
+          "is_set": false
+        },
+        "lfdr_monotone": {
+          "cli_flags": [
+            "--lfdr_monotone",
+            "--no-lfdr_monotone"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Ensure local FDR values are non-decreasing with p-values.",
+          "value": true,
+          "is_set": false
+        },
+        "lfdr_transformation": {
+          "cli_flags": [
+            "--lfdr_transformation"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "probit",
+          "allowed_values": [
+            "probit",
+            "logit"
+          ],
+          "description": "Transformation applied to p-values for local FDR estimation.",
+          "value": "probit",
+          "is_set": false
+        },
+        "lfdr_adj": {
+          "cli_flags": [
+            "--lfdr_adj"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 1.5,
+          "description": "Smoothing bandwidth multiplier used in density estimation.",
+          "value": 1.5,
+          "is_set": false
+        },
+        "lfdr_eps": {
+          "cli_flags": [
+            "--lfdr_eps"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 1e-08,
+          "description": "Threshold for p-value tails in local FDR calculation.",
+          "value": 1e-08,
+          "is_set": false
+        }
+      }
+    },
+    "scoring_level_and_features": {
+      "description": "Data level selection and additional feature controls.",
+      "options": {
+        "level": {
+          "cli_flags": [
+            "--level"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "ms2",
+          "allowed_values": [
+            "ms1",
+            "ms2",
+            "ms1ms2",
+            "transition",
+            "alignment"
+          ],
+          "description": "Data level selected for scoring. 'ms1ms2' integrates both MS1- and MS2-level scores and can be used instead of ms2-only results.",
+          "value": "ms2",
+          "is_set": false
+        },
+        "add_alignment_features": {
+          "cli_flags": [
+            "--add_alignment_features",
+            "--no-add_alignment_features"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Add alignment features to scoring.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    },
+    "ipf_and_specialized_scoring": {
+      "description": "IPF- and glyco-related options.",
+      "options": {
+        "ipf_max_peakgroup_rank": {
+          "cli_flags": [
+            "--ipf_max_peakgroup_rank"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 1,
+          "description": "Assess transitions only for candidate peak groups up to this maximum peak group rank.",
+          "value": 1,
+          "is_set": false
+        },
+        "ipf_max_peakgroup_pep": {
+          "cli_flags": [
+            "--ipf_max_peakgroup_pep"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.7,
+          "description": "Assess transitions only for candidate peak groups up to this maximum posterior error probability.",
+          "value": 0.7,
+          "is_set": false
+        },
+        "ipf_max_transition_isotope_overlap": {
+          "cli_flags": [
+            "--ipf_max_transition_isotope_overlap"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.5,
+          "description": "Maximum isotope overlap to consider transitions in IPF.",
+          "value": 0.5,
+          "is_set": false
+        },
+        "ipf_min_transition_sn": {
+          "cli_flags": [
+            "--ipf_min_transition_sn"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.0,
+          "description": "Minimum log signal-to-noise level to consider transitions in IPF. Set -1 to disable this filter.",
+          "value": 0.0,
+          "is_set": false
+        },
+        "glyco": {
+          "cli_flags": [
+            "--glyco",
+            "--no-glyco"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Enable glycopeptide scoring.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    },
+    "density_reporting_runtime": {
+      "description": "Density estimation, report appearance, runtime, and debugging.",
+      "options": {
+        "density_estimator": {
+          "cli_flags": [
+            "--density_estimator"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "gmm",
+          "allowed_values": [
+            "kde",
+            "gmm"
+          ],
+          "description": "Method used for score density estimation.",
+          "value": "gmm",
+          "is_set": false
+        },
+        "grid_size": {
+          "cli_flags": [
+            "--grid_size"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 256,
+          "description": "Number of d-score cutoffs used to build grid coordinates for local FDR calculation.",
+          "value": 256,
+          "is_set": false
+        },
+        "tric_chromprob": {
+          "cli_flags": [
+            "--tric_chromprob",
+            "--no-tric_chromprob"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Whether chromatogram probabilities for TRIC should be computed.",
+          "value": false,
+          "is_set": false
+        },
+        "color_palette": {
+          "cli_flags": [
+            "--color_palette"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "normal",
+          "allowed_values": [
+            "normal",
+            "protan",
+            "deutran",
+            "tritan"
+          ],
+          "description": "Color palette to use in reports.",
+          "value": "normal",
+          "is_set": false
+        },
+        "main_score_selection_report": {
+          "cli_flags": [
+            "--main_score_selection_report",
+            "--no-main_score_selection_report"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Generate a report for the main-score selection process.",
+          "value": false,
+          "is_set": false
+        },
+        "threads": {
+          "cli_flags": [
+            "--threads"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 1,
+          "description": "Number of threads used for semi-supervised learning. Use -1 for all available CPUs.",
+          "value": 1,
+          "is_set": false
+        },
+        "test": {
+          "cli_flags": [
+            "--test",
+            "--no-test"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Run in test mode with a fixed seed.",
+          "value": false,
+          "is_set": false
+        },
+        "profile": {
+          "cli_flags": [
+            "--profile"
+          ],
+          "value_type": "boolean_flag",
+          "required": false,
+          "default": false,
+          "description": "Enable memory allocation tracking and profiling. Requires the 'memrary' package to be installed.",
+          "value": false,
+          "is_set": false
+        },
+        "help": {
+          "cli_flags": [
+            "--help"
+          ],
+          "value_type": "boolean_flag",
+          "required": false,
+          "default": false,
+          "description": "Show help message and exit.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    }
+  }
+}

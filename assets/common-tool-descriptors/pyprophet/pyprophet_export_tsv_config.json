@@ -1,0 +1,238 @@
+{
+  "meta": {
+    "tool": "PyProphet",
+    "command": "pyprophet export tsv",
+    "version_from_help": "3.0.0",
+    "schema_kind": "command_schema_with_values",
+    "source": "User-provided `pyprophet export tsv --helphelp` output",
+    "summary": "Export Proteomics/Peptidoform TSV/CSV tables.",
+    "value_field_policy": "`default` preserves the CLI default from --help; `value` is the currently selected value for this config template; `is_set` indicates whether the value is explicitly overridden."
+  },
+  "sections": {
+    "io": {
+      "description": "Input/output file options.",
+      "options": {
+        "in": {
+          "cli_flags": [
+            "--in"
+          ],
+          "value_type": "path",
+          "required": true,
+          "default": null,
+          "description": "PyProphet input file.",
+          "value": null,
+          "is_set": false
+        },
+        "out": {
+          "cli_flags": [
+            "--out"
+          ],
+          "value_type": "path",
+          "required": false,
+          "default": null,
+          "description": "Output TSV/CSV file for legacy_split or legacy_merged export.",
+          "value": null,
+          "is_set": false
+        }
+      }
+    },
+    "export_format": {
+      "description": "Controls output table layout and delimiter style.",
+      "options": {
+        "format": {
+          "cli_flags": [
+            "--format"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "legacy_merged",
+          "allowed_values": [
+            "legacy_split",
+            "legacy_merged"
+          ],
+          "description": "Export format, either legacy_split or legacy_merged (mProphet/PyProphet).",
+          "value": "legacy_merged",
+          "is_set": false
+        },
+        "csv": {
+          "cli_flags": [
+            "--csv",
+            "--no-csv"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Export CSV instead of TSV.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    },
+    "transition_quantification": {
+      "description": "Options controlling transition-level reporting and filtering.",
+      "options": {
+        "transition_quantification": {
+          "cli_flags": [
+            "--transition_quantification",
+            "--no-transition_quantification"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "[format: legacy] Report aggregated transition-level quantification.",
+          "value": true,
+          "is_set": false
+        },
+        "max_transition_pep": {
+          "cli_flags": [
+            "--max_transition_pep"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.7,
+          "description": "[format: legacy] Maximum PEP to retain scored transitions for quantification. Requires transition-level scoring.",
+          "value": 0.7,
+          "is_set": false
+        }
+      }
+    },
+    "ipf": {
+      "description": "Options controlling inference of peptidoforms (IPF) reporting and filtering.",
+      "options": {
+        "ipf": {
+          "cli_flags": [
+            "--ipf"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "peptidoform",
+          "allowed_values": [
+            "peptidoform",
+            "augmented",
+            "disable"
+          ],
+          "description": "[format: matrix/legacy] Controls whether IPF results are reported if present. 'peptidoform' reports peptidoform-level results, 'augmented' augments OpenSWATH results with IPF scores, 'disable' ignores IPF results.",
+          "value": "peptidoform",
+          "is_set": false
+        },
+        "ipf_max_peptidoform_pep": {
+          "cli_flags": [
+            "--ipf_max_peptidoform_pep"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.4,
+          "description": "[format: matrix/legacy] IPF filter for maximum run-specific peptidoform-level PEP.",
+          "value": 0.4,
+          "is_set": false
+        }
+      }
+    },
+    "peakgroup_peptide_protein_filters": {
+      "description": "Controls filtering and inclusion of peak-group, peptide, and protein-level error-rate information.",
+      "options": {
+        "max_rs_peakgroup_qvalue": {
+          "cli_flags": [
+            "--max_rs_peakgroup_qvalue"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.05,
+          "description": "[format: matrix/legacy] Filter results to maximum run-specific peak group-level q-value.",
+          "value": 0.05,
+          "is_set": false
+        },
+        "peptide": {
+          "cli_flags": [
+            "--peptide",
+            "--no-peptide"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Append peptide-level error-rate estimates if available.",
+          "value": true,
+          "is_set": false
+        },
+        "max_global_peptide_qvalue": {
+          "cli_flags": [
+            "--max_global_peptide_qvalue"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.01,
+          "description": "[format: matrix/legacy] Filter results to maximum global peptide-level q-value.",
+          "value": 0.01,
+          "is_set": false
+        },
+        "protein": {
+          "cli_flags": [
+            "--protein",
+            "--no-protein"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Append protein-level error-rate estimates if available.",
+          "value": true,
+          "is_set": false
+        },
+        "max_global_protein_qvalue": {
+          "cli_flags": [
+            "--max_global_protein_qvalue"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.01,
+          "description": "[format: matrix/legacy] Filter results to maximum global protein-level q-value.",
+          "value": 0.01,
+          "is_set": false
+        }
+      }
+    },
+    "alignment": {
+      "description": "Options for using alignment results to recover peaks.",
+      "options": {
+        "use_alignment": {
+          "cli_flags": [
+            "--use_alignment",
+            "--no-use_alignment"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Use alignment results to recover peaks with good alignment scores if alignment data is present in the input file.",
+          "value": true,
+          "is_set": false
+        },
+        "max_alignment_pep": {
+          "cli_flags": [
+            "--max_alignment_pep"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 0.7,
+          "description": "[format: matrix/legacy] Maximum PEP to consider for good alignments when use_alignment is enabled.",
+          "value": 0.7,
+          "is_set": false
+        }
+      }
+    },
+    "utility": {
+      "description": "Utility and informational flags.",
+      "options": {
+        "help": {
+          "cli_flags": [
+            "--help"
+          ],
+          "value_type": "boolean_flag",
+          "required": false,
+          "default": false,
+          "description": "Show the help message and exit.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    }
+  }
+}

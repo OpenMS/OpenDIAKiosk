@@ -1,0 +1,262 @@
+{
+  "meta": {
+    "tool": "PyProphet",
+    "command": "pyprophet infer peptide",
+    "version_from_help": "3.0.0",
+    "schema_kind": "command_schema_with_values",
+    "source": "User-provided `pyprophet infer peptide --helphelp` output",
+    "summary": "Infer peptides and conduct error-rate estimation in different contexts.",
+    "deprecated": true,
+    "value_field_policy": "`default` preserves the CLI default from --help; `value` is the currently selected value for this config template; `is_set` indicates whether the value is explicitly overridden."
+  },
+  "sections": {
+    "io": {
+      "description": "Input and output file options.",
+      "options": {
+        "in": {
+          "cli_flags": [
+            "--in"
+          ],
+          "value_type": "path",
+          "required": true,
+          "default": null,
+          "description": "PyProphet input file.",
+          "accepted_formats": [
+            ".osw",
+            ".parquet"
+          ],
+          "notes": [
+            ".parquet must be produced by `export parquet`."
+          ],
+          "value": null,
+          "is_set": false
+        },
+        "out": {
+          "cli_flags": [
+            "--out"
+          ],
+          "value_type": "path",
+          "required": false,
+          "default": null,
+          "description": "PyProphet output file.",
+          "accepted_formats": [
+            ".osw",
+            ".parquet"
+          ],
+          "constraints": [
+            "Must use the same format as the input file."
+          ],
+          "value": null,
+          "is_set": false
+        }
+      }
+    },
+    "inference_context": {
+      "description": "Peptide-level inference context.",
+      "options": {
+        "context": {
+          "cli_flags": [
+            "--context"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "global",
+          "allowed_values": [
+            "run-specific",
+            "experiment-wide",
+            "global"
+          ],
+          "description": "Context used to estimate peptide-level FDR control.",
+          "value": "global",
+          "is_set": false
+        }
+      }
+    },
+    "statistics_and_fdr": {
+      "description": "Options controlling p-value, pi0, and local FDR estimation.",
+      "options": {
+        "parametric": {
+          "cli_flags": [
+            "--parametric",
+            "--no-parametric"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Use parametric estimation of p-values.",
+          "value": false,
+          "is_set": false
+        },
+        "pfdr": {
+          "cli_flags": [
+            "--no-pfdr",
+            "--pfdr"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Compute positive false discovery rate (pFDR) instead of FDR.",
+          "value": false,
+          "is_set": false
+        },
+        "pi0_lambda": {
+          "cli_flags": [
+            "--pi0_lambda"
+          ],
+          "value_type": "array[float]",
+          "required": false,
+          "default": [
+            0.1,
+            0.5,
+            0.05
+          ],
+          "expected_length": 3,
+          "description": "Controls non-parametric estimation of p-values. Either specify [start, end, steps], e.g. [0.1, 1.0, 0.1], or a fixed value such as [0.4, 0, 0].",
+          "value": [
+            0.1,
+            0.5,
+            0.05
+          ],
+          "is_set": false
+        },
+        "pi0_method": {
+          "cli_flags": [
+            "--pi0_method"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "bootstrap",
+          "allowed_values": [
+            "smoother",
+            "bootstrap"
+          ],
+          "description": "Method for choosing the tuning parameter in pi0 estimation.",
+          "value": "bootstrap",
+          "is_set": false
+        },
+        "pi0_smooth_df": {
+          "cli_flags": [
+            "--pi0_smooth_df"
+          ],
+          "value_type": "integer",
+          "required": false,
+          "default": 3,
+          "description": "Degrees of freedom for the smoother when estimating pi0.",
+          "value": 3,
+          "is_set": false
+        },
+        "pi0_smooth_log_pi0": {
+          "cli_flags": [
+            "--no-pi0_smooth_log_pi0",
+            "--pi0_smooth_log_pi0"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Apply the smoother to log(pi0) values during estimation.",
+          "value": false,
+          "is_set": false
+        },
+        "lfdr_truncate": {
+          "cli_flags": [
+            "--lfdr_truncate",
+            "--no-lfdr_truncate"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "If true, local FDR values greater than 1 are set to 1.",
+          "value": true,
+          "is_set": false
+        },
+        "lfdr_monotone": {
+          "cli_flags": [
+            "--lfdr_monotone",
+            "--no-lfdr_monotone"
+          ],
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Ensure local FDR values are non-decreasing with p-values.",
+          "value": true,
+          "is_set": false
+        },
+        "lfdr_transformation": {
+          "cli_flags": [
+            "--lfdr_transformation"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "probit",
+          "allowed_values": [
+            "probit",
+            "logit"
+          ],
+          "description": "Transformation applied to p-values for local FDR estimation.",
+          "value": "probit",
+          "is_set": false
+        },
+        "lfdr_adj": {
+          "cli_flags": [
+            "--lfdr_adj"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 1.5,
+          "description": "Smoothing bandwidth multiplier used in density estimation.",
+          "value": 1.5,
+          "is_set": false
+        },
+        "lfdr_eps": {
+          "cli_flags": [
+            "--lfdr_eps"
+          ],
+          "value_type": "float",
+          "required": false,
+          "default": 1e-08,
+          "description": "Threshold for p-value tails in local FDR calculation.",
+          "value": 1e-08,
+          "is_set": false
+        }
+      }
+    },
+    "reporting": {
+      "description": "Report display options.",
+      "options": {
+        "color_palette": {
+          "cli_flags": [
+            "--color_palette"
+          ],
+          "value_type": "string",
+          "required": false,
+          "default": "normal",
+          "allowed_values": [
+            "normal",
+            "protan",
+            "deutran",
+            "tritan"
+          ],
+          "description": "Color palette to use in reports.",
+          "value": "normal",
+          "is_set": false
+        }
+      }
+    },
+    "utility": {
+      "description": "Utility and informational flags.",
+      "options": {
+        "help": {
+          "cli_flags": [
+            "--help"
+          ],
+          "value_type": "boolean_flag",
+          "required": false,
+          "default": false,
+          "description": "Show the help message and exit.",
+          "value": false,
+          "is_set": false
+        }
+      }
+    }
+  }
+}
