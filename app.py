@@ -102,6 +102,11 @@ if __name__ == "__main__":
                 icon="🔁",
             ),
             st.Page(
+                Path("content", "openswath_results_viewer.py"),
+                title="Results Viewer",
+                icon="📈",
+            ),
+            st.Page(
                 Path("content", "xic_chromatogram_viewer.py"),
                 title="XIC Chromatogram Viewer",
                 icon="📊",
