@@ -214,7 +214,14 @@ def remove_all_xic_files() -> None:
             pass
 
     # Clear session state keys related to XIC viewer if present
-    for key in ["xic_tmp_paths", "file_analytes", "shared_analytes", "files_loaded"]:
+    for key in [
+        "xic_tmp_paths",
+        "file_analytes",
+        "shared_analytes",
+        "files_loaded",
+        "xic_run_metadata",
+        "boundary_run_mapping",
+    ]:
         if key in st.session_state:
             del st.session_state[key]
 
