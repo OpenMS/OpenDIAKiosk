@@ -27,13 +27,13 @@
         "result_ttl": 86400
     },
     "demo_workspaces": {
-        "enabled": true,
+        "enabled": false,
         "source_dirs": [
             "example-data/workspaces"
         ]
     },
     "max_threads": {
-        "local": 4,
+        "local": 10,
         "online": 2
     }
 }
