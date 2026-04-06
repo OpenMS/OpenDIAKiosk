@@ -311,6 +311,33 @@ def save_params(params: dict[str, Any]) -> None:
     return params
 
 
+def persist_ui_preference(key: str) -> None:
+    """
+    Persist a lightweight UI preference to the active workspace params file.
+    """
+    if not st.session_state.get("settings", {}).get("enable_workspaces", False):
+        return
+
+    workspace = st.session_state.get("workspace")
+    if not workspace:
+        return
+
+    path = Path(workspace, "params.json")
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as infile:
+                params = json.load(infile)
+        except Exception:
+            params = {}
+    else:
+        params = {}
+
+    params[key] = st.session_state.get(key)
+
+    with open(path, "w", encoding="utf-8") as outfile:
+        json.dump(params, outfile, indent=4)
+
+
 def page_setup(page: str = "") -> dict[str, Any]:
     """
     Set up the Streamlit page configuration and determine the workspace for the current session.
@@ -550,6 +577,10 @@ def render_sidebar(page: str = "") -> None:
         None
     """
     params = load_params()
+    st.session_state["advanced"] = bool(
+        params.get("advanced", st.session_state.get("advanced", False))
+    )
+    params["advanced"] = st.session_state["advanced"]
     with st.sidebar:
         # The main page has workspace switcher
         # Display workspace switcher if workspace is enabled in local mode
@@ -752,12 +783,14 @@ def render_sidebar(page: str = "") -> None:
             else:
                 st.session_state["spectrum_num_bins"] = 50
             # Advanced parameters toggle (global)
-            if "advanced" not in st.session_state:
-                st.session_state["advanced"] = False
+            st.session_state["advanced"] = bool(
+                params.get("advanced", st.session_state.get("advanced", False))
+            )
             st.checkbox(
                 "Show advanced parameters",
-                value=st.session_state["advanced"],
                 key="advanced",
+                on_change=persist_ui_preference,
+                args=("advanced",),
             )
 
         with st.expander("📊 **Resource Utilization**"):
