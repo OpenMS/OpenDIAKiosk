@@ -67,6 +67,7 @@ PY_MATRIX_OUTS = {
     "peptide": "openswath_results.peptide.tsv",
     "protein": "openswath_results.protein.tsv",
 }
+PY_INFER_CONTEXTS = ["global", "experiment-wide", "run-specific"]
 
 
 def _copy_ini_once(asset_dir: Path, dest_name: str) -> Path | None:
@@ -139,6 +140,22 @@ def _seed_multiselect_state(
         return
     saved_values = saved_values or []
     st.session_state[widget_key] = [value for value in saved_values if value in options]
+
+
+def _seed_checkbox_state(widget_key: str, saved_value: bool) -> None:
+    """Restore a saved checkbox state when the current widget state is missing."""
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = bool(saved_value)
+
+
+def _normalize_context_selection(saved_values) -> list[str]:
+    """Normalize saved infer contexts while preserving the supported order."""
+    if isinstance(saved_values, str):
+        saved_values = [saved_values]
+    if not isinstance(saved_values, list):
+        saved_values = []
+    normalized = [value for value in PY_INFER_CONTEXTS if value in saved_values]
+    return normalized or ["global"]
 
 
 # -----------------------------------------------------------------------------
@@ -1086,6 +1103,10 @@ if cfg_files:
             continue
         cmd_key = cfg_path.stem
         title = cfg.get("meta", {}).get("command", cmd_key)
+        saved_cmd_cfg_path = workspace_dir / "tools-configs" / "pyprophet" / f"{cmd_key}.json"
+        saved_cmd_cfg = (
+            _load_json_asset(saved_cmd_cfg_path) if saved_cmd_cfg_path.exists() else {}
+        )
         with st.expander(f"⚙️ {title}", expanded=False):
             # Prepare config to render; hide experimental alignment and derive IO
             cfg_to_render = dict(cfg)
@@ -1100,6 +1121,22 @@ if cfg_files:
                 if "alignment" in sections:
                     sections.pop("alignment", None)
                     cfg_to_render["sections"] = sections
+
+            infer_context_values: list[str] = []
+            if cmd_key in {
+                "pyprophet_infer_peptide_config",
+                "pyprophet_infer_protein_config",
+            }:
+                sections = cfg_to_render.get("sections", {})
+                context_section = sections.get("inference_context", {})
+                context_options = context_section.get("options", {})
+                context_options.pop("context", None)
+                if context_options:
+                    context_section["options"] = context_options
+                    sections["inference_context"] = context_section
+                else:
+                    sections.pop("inference_context", None)
+                cfg_to_render["sections"] = sections
 
             # Determine derived IO values (don't render 'in'/'out' widgets)
             derived_in = None
@@ -1160,6 +1197,35 @@ if cfg_files:
             except Exception:
                 pass
 
+            if cmd_key in {
+                "pyprophet_infer_peptide_config",
+                "pyprophet_infer_protein_config",
+            }:
+                infer_type = "peptide" if "peptide" in cmd_key else "protein"
+                saved_contexts = _normalize_context_selection(
+                    saved_cmd_cfg.get(
+                        "contexts",
+                        saved_cmd_cfg.get("context", "global"),
+                    )
+                )
+                st.caption(
+                    "Run this inference separately for each selected context."
+                )
+                ctx_cols = st.columns(len(PY_INFER_CONTEXTS))
+                for col, context in zip(ctx_cols, PY_INFER_CONTEXTS):
+                    widget_key = (
+                        f"pyprophet_{infer_type}_context_"
+                        f"{context.replace('-', '_')}"
+                    )
+                    _seed_checkbox_state(widget_key, context in saved_contexts)
+                    if col.checkbox(context, key=widget_key):
+                        infer_context_values.append(context)
+                if not infer_context_values:
+                    st.warning(
+                        "At least one inference context should be selected. "
+                        "If left empty, the workflow will fall back to `global`."
+                    )
+
             # Auto-save per-command tool config to workspace/tools-configs/pyprophet/{cmd_key}.json
             try:
                 tools_dir = workspace_dir / "tools-configs" / "pyprophet"
@@ -1180,6 +1246,12 @@ if cfg_files:
                                 out_dict[opt_name] = v
                         else:
                             out_dict[opt_name] = v
+                if cmd_key in {
+                    "pyprophet_infer_peptide_config",
+                    "pyprophet_infer_protein_config",
+                }:
+                    out_dict.pop("context", None)
+                    out_dict["contexts"] = infer_context_values or ["global"]
                 out_path = tools_dir / f"{cmd_key}.json"
                 with open(out_path, "w", encoding="utf-8") as f:
                     json.dump(out_dict, f, indent=2)
@@ -1209,7 +1281,7 @@ with st.expander("⚙️ pyprophet export matrix", expanded=False):
     _seed_multiselect_state(
         "pyprophet_matrix_levels",
         PY_MATRIX_LEVELS,
-        matrix_saved.get("levels", []),
+        matrix_saved.get("levels", PY_MATRIX_LEVELS),
     )
     matrix_levels = st.multiselect(
         "Matrix export levels",

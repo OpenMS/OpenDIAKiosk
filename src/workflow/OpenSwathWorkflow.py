@@ -44,6 +44,7 @@ _PY_MATRIX_OUTS = {
     "peptide": "openswath_results.peptide.tsv",
     "protein": "openswath_results.protein.tsv",
 }
+_PY_INFER_CONTEXTS = ["global", "experiment-wide", "run-specific"]
 
 _RUN_MODE_KEY = "openswath_run_mode"
 _RUN_RESUME_STEP_KEY = "openswath_resume_step"
@@ -138,6 +139,95 @@ class OpenSwathWorkflow(WorkflowManager):
                 return json.load(f)
         except Exception:
             return {}
+
+    def _load_pyprophet_schema(self, schema_name: str) -> dict:
+        repo_root = Path(__file__).resolve().parents[2]
+        schema_path = (
+            repo_root
+            / "assets"
+            / "common-tool-descriptors"
+            / "pyprophet"
+            / schema_name
+        )
+        if not schema_path.exists():
+            return {}
+        try:
+            with open(schema_path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _append_pyprophet_config_options(
+        self,
+        command: list[str],
+        config: dict,
+        schema_name: str,
+        exclude_keys: set[str] | None = None,
+    ) -> list[str]:
+        exclude_keys = exclude_keys or set()
+        schema = self._load_pyprophet_schema(schema_name)
+        option_defs: dict[str, dict] = {}
+        for section in schema.get("sections", {}).values():
+            option_defs.update(section.get("options", {}))
+
+        for opt_name, opt_def in option_defs.items():
+            if opt_name in exclude_keys or opt_name not in config:
+                continue
+            value = config.get(opt_name)
+            if value in (None, ""):
+                continue
+
+            value_type = opt_def.get("value_type")
+            default = opt_def.get("default")
+            cli_flags = opt_def.get("cli_flags", [])
+            if not cli_flags:
+                continue
+
+            if value_type == "boolean":
+                bool_value = bool(value)
+                bool_default = bool(default)
+                if bool_value == bool_default:
+                    continue
+                positive_flag = next(
+                    (flag for flag in cli_flags if not flag.startswith("--no-")),
+                    None,
+                )
+                negative_flag = next(
+                    (flag for flag in cli_flags if flag.startswith("--no-")),
+                    None,
+                )
+                selected_flag = positive_flag if bool_value else negative_flag
+                if selected_flag:
+                    command.append(selected_flag)
+                continue
+
+            if value_type == "boolean_flag":
+                if value:
+                    command.append(cli_flags[0])
+                continue
+
+            if isinstance(value, list):
+                if value == default or not value:
+                    continue
+                command.append(cli_flags[0])
+                command.extend(str(item) for item in value)
+                continue
+
+            if value == default:
+                continue
+
+            command.extend([cli_flags[0], str(value)])
+
+        return command
+
+    def _selected_pyprophet_contexts(self, config: dict) -> list[str]:
+        contexts = config.get("contexts", config.get("context", ["global"]))
+        if isinstance(contexts, str):
+            contexts = [contexts]
+        if not isinstance(contexts, list):
+            contexts = []
+        selected = [context for context in _PY_INFER_CONTEXTS if context in contexts]
+        return selected or ["global"]
 
     def _debug_output_matches(self, results_dir: Path) -> list[Path]:
         matches: dict[str, Path] = {}
@@ -506,10 +596,35 @@ class OpenSwathWorkflow(WorkflowManager):
 
         subcommands: list[tuple[str, list[str]]] = [
             ("score", [exe, "score", "--in", osw_in]),
-            ("infer peptide", [exe, "infer", "peptide", "--in", osw_in]),
-            ("infer protein", [exe, "infer", "protein", "--in", osw_in]),
-            ("export tsv", tsv_cmd),
         ]
+
+        infer_peptide_cfg = self._load_tool_config(
+            "tools-configs", "pyprophet", "pyprophet_infer_peptide_config.json"
+        )
+        for context in self._selected_pyprophet_contexts(infer_peptide_cfg):
+            cmd = [exe, "infer", "peptide", "--in", osw_in, "--context", context]
+            cmd = self._append_pyprophet_config_options(
+                cmd,
+                infer_peptide_cfg,
+                "pyprophet_infer_peptide_config.json",
+                exclude_keys={"in", "out", "help", "context", "contexts"},
+            )
+            subcommands.append((f"infer peptide ({context})", cmd))
+
+        infer_protein_cfg = self._load_tool_config(
+            "tools-configs", "pyprophet", "pyprophet_infer_protein_config.json"
+        )
+        for context in self._selected_pyprophet_contexts(infer_protein_cfg):
+            cmd = [exe, "infer", "protein", "--in", osw_in, "--context", context]
+            cmd = self._append_pyprophet_config_options(
+                cmd,
+                infer_protein_cfg,
+                "pyprophet_infer_protein_config.json",
+                exclude_keys={"in", "out", "help", "context", "contexts"},
+            )
+            subcommands.append((f"infer protein ({context})", cmd))
+
+        subcommands.append(("export tsv", tsv_cmd))
 
         matrix_cfg = self._load_tool_config(
             "tools-configs", "pyprophet", "pyprophet_export_matrix_config.json"
