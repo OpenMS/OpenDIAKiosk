@@ -1,0 +1,83 @@
+{
+  "version": "0.1.9",
+  "database": {
+    "enzyme": {
+      "missed_cleavages": 0,
+      "min_len": null,
+      "max_len": null,
+      "cleave_at": "KR",
+      "restrict": "P",
+      "c_terminal": null,
+      "semi_enzymatic": null
+    },
+    "peptide_min_mass": 500.0,
+    "peptide_max_mass": 5000.0,
+    "static_mods": {
+      "C": 57.0215
+    },
+    "variable_mods": {
+      "[": [
+        42.0
+      ],
+      "M": [
+        15.9949
+      ]
+    },
+    "max_variable_mods": 3,
+    "decoy_tag": "rev_",
+    "generate_decoys": false,
+    "fasta": ""
+  },
+  "insilico_settings": {
+    "precursor_charge": [
+      2,
+      3,
+      4
+    ],
+    "max_fragment_charge": 2,
+    "min_transitions": 2,
+    "max_transitions": 20,
+    "fragmentation_model": "hcd",
+    "allowed_fragment_types": [
+      "b",
+      "y"
+    ],
+    "rt_scale": 1.0,
+    "unimod_annotation": true,
+    "max_delta_unimod": 0.02,
+    "enable_unannotated": true,
+    "unimod_xml_path": ""
+  },
+  "dl_feature_generators": {
+    "retention_time": {
+      "model_path": "data/pretrained_models/redeem/20251205_100_epochs_min_max_rt_cnn_tf.safetensors",
+      "constants_path": "data/pretrained_models/alphapeptdeep/generic/rt.pth.model_const.yaml",
+      "architecture": "rt_cnn_tf"
+    },
+    "ion_mobility": {
+      "model_path": "data/pretrained_models/redeem/20251205_500_epochs_early_stopped_100_min_max_ccs_cnn_tf.safetensors",
+      "constants_path": "data/pretrained_models/alphapeptdeep/generic/ccs.pth.model_const.yaml",
+      "architecture": "ccs_cnn_tf"
+    },
+    "ms2_intensity": {
+      "model_path": "data/pretrained_models/alphapeptdeep/generic/ms2.pth",
+      "constants_path": "data/pretrained_models/alphapeptdeep/generic/ms2.pth.model_const.yaml",
+      "architecture": "ms2_bert"
+    },
+    "device": "cpu",
+    "fine_tune_config": {
+      "fine_tune": false,
+      "train_data_path": "",
+      "batch_size": 256,
+      "epochs": 3,
+      "learning_rate": 0.001,
+      "save_model": false
+    },
+    "instrument": "QE",
+    "nce": 20.0,
+    "batch_size": 10
+  },
+  "peptide_chunking": 0,
+  "output_file": "easypqp_predicted_lib.tsv",
+  "write_report": true
+}

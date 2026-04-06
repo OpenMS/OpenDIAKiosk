@@ -1,0 +1,508 @@
+{
+  "meta": {
+    "tool": "easypqp-rs",
+    "command_or_config": "insilico flat JSON config",
+    "schema_kind": "config_schema_with_values",
+    "source_files": [
+      "easypqp_insilico.json",
+      "input.rs"
+    ],
+    "summary": "Structured schema+values config derived from the provided flat EasyPQP in-silico config and the Rust structs/build logic.",
+    "notes": [
+      "For each field: `default` is the code default when it is visible in the provided Rust source, otherwise it is the observed value from the generated flat config.",
+      "`value` is the current value from the attached flat config.",
+      "`is_set` indicates whether the field was explicitly present in the attached flat config.",
+      "`required` is based on the visible Rust validation/build logic where possible."
+    ]
+  },
+  "sections": {
+    "database": {
+      "description": "Database, digestion, modification, and decoy-generation settings.",
+      "options": {
+        "enzyme": {
+          "description": "Protease digestion settings.",
+          "options": {
+            "missed_cleavages": {
+              "value_type": "integer",
+              "required": false,
+              "default": 0,
+              "value": 0,
+              "is_set": true,
+              "description": "Maximum allowed missed cleavages during digestion."
+            },
+            "min_len": {
+              "value_type": [
+                "integer",
+                "null"
+              ],
+              "required": false,
+              "default": null,
+              "value": null,
+              "is_set": true,
+              "description": "Minimum peptide length after digestion."
+            },
+            "max_len": {
+              "value_type": [
+                "integer",
+                "null"
+              ],
+              "required": false,
+              "default": null,
+              "value": null,
+              "is_set": true,
+              "description": "Maximum peptide length after digestion."
+            },
+            "cleave_at": {
+              "value_type": "string",
+              "required": false,
+              "default": "KR",
+              "value": "KR",
+              "is_set": true,
+              "description": "Residues at which the enzyme cleaves."
+            },
+            "restrict": {
+              "value_type": "string",
+              "required": false,
+              "default": "P",
+              "value": "P",
+              "is_set": true,
+              "description": "Residues that restrict cleavage when adjacent to the cleavage site."
+            },
+            "c_terminal": {
+              "value_type": [
+                "boolean",
+                "null"
+              ],
+              "required": false,
+              "default": null,
+              "value": null,
+              "is_set": true,
+              "description": "Whether cleavage occurs on the C-terminal side of the cleavage residue."
+            },
+            "semi_enzymatic": {
+              "value_type": [
+                "boolean",
+                "null"
+              ],
+              "required": false,
+              "default": null,
+              "value": null,
+              "is_set": true,
+              "description": "Whether semi-enzymatic digestion is enabled."
+            }
+          }
+        },
+        "peptide_min_mass": {
+          "value_type": "float",
+          "required": false,
+          "default": 500.0,
+          "value": 500.0,
+          "is_set": true,
+          "description": "Minimum peptide mass in Daltons."
+        },
+        "peptide_max_mass": {
+          "value_type": "float",
+          "required": false,
+          "default": 5000.0,
+          "value": 5000.0,
+          "is_set": true,
+          "description": "Maximum peptide mass in Daltons."
+        },
+        "static_mods": {
+          "value_type": "object[string -> float]",
+          "required": false,
+          "default": {
+            "C": 57.0215
+          },
+          "value": {
+            "C": 57.0215
+          },
+          "is_set": true,
+          "description": "Static modifications keyed by specificity/site."
+        },
+        "variable_mods": {
+          "value_type": "object[string -> array[float]]",
+          "required": false,
+          "default": {
+            "[": [
+              42.0
+            ],
+            "M": [
+              15.9949
+            ]
+          },
+          "value": {
+            "[": [
+              42.0
+            ],
+            "M": [
+              15.9949
+            ]
+          },
+          "is_set": true,
+          "description": "Variable modifications keyed by specificity/site, each with one or more allowed mass shifts."
+        },
+        "max_variable_mods": {
+          "value_type": "integer",
+          "required": false,
+          "default": 3,
+          "value": 3,
+          "is_set": true,
+          "description": "Maximum number of variable modifications allowed per peptide."
+        },
+        "decoy_tag": {
+          "value_type": "string",
+          "required": false,
+          "default": "rev_",
+          "value": "rev_",
+          "is_set": true,
+          "description": "Prefix used for decoy protein names."
+        },
+        "generate_decoys": {
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "value": false,
+          "is_set": true,
+          "description": "Whether decoy peptide/protein sequences are generated."
+        },
+        "fasta": {
+          "value_type": "string",
+          "required": true,
+          "default": "",
+          "value": "",
+          "is_set": true,
+          "description": "Path to the FASTA protein database file. Must be set before running."
+        }
+      }
+    },
+    "insilico_settings": {
+      "description": "In-silico library generation settings.",
+      "options": {
+        "precursor_charge": {
+          "value_type": "array[integer]",
+          "required": true,
+          "default": [
+            2,
+            3,
+            4
+          ],
+          "value": [
+            2,
+            3,
+            4
+          ],
+          "is_set": true,
+          "description": "Allowed precursor charge states."
+        },
+        "max_fragment_charge": {
+          "value_type": "integer",
+          "required": true,
+          "default": 2,
+          "value": 2,
+          "is_set": true,
+          "description": "Maximum fragment ion charge state."
+        },
+        "min_transitions": {
+          "value_type": "integer",
+          "required": true,
+          "default": 2,
+          "value": 2,
+          "is_set": true,
+          "description": "Minimum number of transitions per precursor."
+        },
+        "max_transitions": {
+          "value_type": "integer",
+          "required": true,
+          "default": 20,
+          "value": 20,
+          "is_set": true,
+          "description": "Maximum number of transitions per precursor."
+        },
+        "fragmentation_model": {
+          "value_type": "string",
+          "required": true,
+          "default": "hcd",
+          "value": "hcd",
+          "is_set": true,
+          "description": "Fragmentation model name used for in-silico prediction."
+        },
+        "allowed_fragment_types": {
+          "value_type": "array[string]",
+          "required": true,
+          "default": [
+            "b",
+            "y"
+          ],
+          "value": [
+            "b",
+            "y"
+          ],
+          "is_set": true,
+          "description": "Allowed fragment ion series/types."
+        },
+        "rt_scale": {
+          "value_type": "float",
+          "required": true,
+          "default": 1.0,
+          "value": 1.0,
+          "is_set": true,
+          "description": "Scale factor applied to predicted retention times."
+        },
+        "unimod_annotation": {
+          "value_type": "boolean",
+          "required": true,
+          "default": true,
+          "value": true,
+          "is_set": true,
+          "description": "Whether to annotate modifications using Unimod."
+        },
+        "max_delta_unimod": {
+          "value_type": "float",
+          "required": true,
+          "default": 0.02,
+          "value": 0.02,
+          "is_set": true,
+          "description": "Maximum mass delta tolerated when mapping to Unimod annotations."
+        },
+        "enable_unannotated": {
+          "value_type": "boolean",
+          "required": true,
+          "default": true,
+          "value": true,
+          "is_set": true,
+          "description": "Whether to allow fragments or modifications that remain unannotated."
+        },
+        "unimod_xml_path": {
+          "value_type": "string",
+          "required": true,
+          "default": "",
+          "value": "",
+          "is_set": true,
+          "description": "Optional path to a Unimod XML file."
+        }
+      }
+    },
+    "dl_feature_generators": {
+      "description": "Deep-learning models and inference/fine-tuning options for RT, IM, and MS2 prediction.",
+      "options": {
+        "retention_time": {
+          "description": "Retention-time prediction model configuration.",
+          "options": {
+            "model_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/redeem/20251205_100_epochs_min_max_rt_cnn_tf.safetensors",
+              "is_set": true,
+              "description": "Path to RT model weights file."
+            },
+            "constants_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/alphapeptdeep/generic/rt.pth.model_const.yaml",
+              "is_set": true,
+              "description": "Path to RT model constants YAML file."
+            },
+            "architecture": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "rt_cnn_tf",
+              "is_set": true,
+              "description": "RT model architecture identifier."
+            }
+          }
+        },
+        "ion_mobility": {
+          "description": "Ion-mobility / CCS prediction model configuration.",
+          "options": {
+            "model_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/redeem/20251205_500_epochs_early_stopped_100_min_max_ccs_cnn_tf.safetensors",
+              "is_set": true,
+              "description": "Path to IM/CCS model weights file."
+            },
+            "constants_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/alphapeptdeep/generic/ccs.pth.model_const.yaml",
+              "is_set": true,
+              "description": "Path to IM/CCS model constants YAML file."
+            },
+            "architecture": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "ccs_cnn_tf",
+              "is_set": true,
+              "description": "IM/CCS model architecture identifier."
+            }
+          }
+        },
+        "ms2_intensity": {
+          "description": "MS2 intensity prediction model configuration.",
+          "options": {
+            "model_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/alphapeptdeep/generic/ms2.pth",
+              "is_set": true,
+              "description": "Path to MS2 model weights file."
+            },
+            "constants_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "data/pretrained_models/alphapeptdeep/generic/ms2.pth.model_const.yaml",
+              "is_set": true,
+              "description": "Path to MS2 model constants YAML file."
+            },
+            "architecture": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "ms2_bert",
+              "is_set": true,
+              "description": "MS2 model architecture identifier."
+            }
+          }
+        },
+        "device": {
+          "value_type": "string",
+          "required": false,
+          "default": "cpu",
+          "value": "cpu",
+          "is_set": true,
+          "description": "Inference device. Supported values described in code are cpu, cuda, or mps."
+        },
+        "fine_tune_config": {
+          "description": "Optional transfer-learning / fine-tuning settings.",
+          "options": {
+            "fine_tune": {
+              "value_type": "boolean",
+              "required": false,
+              "default": false,
+              "value": false,
+              "is_set": true,
+              "description": "Enable fine-tuning of the deep-learning models."
+            },
+            "train_data_path": {
+              "value_type": "string",
+              "required": false,
+              "default": "",
+              "value": "",
+              "is_set": true,
+              "description": "TSV training data path for fine-tuning."
+            },
+            "batch_size": {
+              "value_type": "integer",
+              "required": false,
+              "default": 256,
+              "value": 256,
+              "is_set": true,
+              "description": "Fine-tuning batch size."
+            },
+            "epochs": {
+              "value_type": "integer",
+              "required": false,
+              "default": 3,
+              "value": 3,
+              "is_set": true,
+              "description": "Number of fine-tuning epochs."
+            },
+            "learning_rate": {
+              "value_type": "float",
+              "required": false,
+              "default": 0.001,
+              "value": 0.001,
+              "is_set": true,
+              "description": "Learning rate for fine-tuning."
+            },
+            "save_model": {
+              "value_type": "boolean",
+              "required": false,
+              "default": false,
+              "value": false,
+              "is_set": true,
+              "description": "Whether to save the fine-tuned model to disk."
+            }
+          }
+        },
+        "instrument": {
+          "value_type": "string",
+          "required": false,
+          "default": "QE",
+          "value": "QE",
+          "is_set": true,
+          "allowed_values": [
+            "QE",
+            "Lumos",
+            "timsTOF",
+            "SciexTOF",
+            "ThermoTOF"
+          ],
+          "description": "Instrument type used for model selection and prediction settings."
+        },
+        "nce": {
+          "value_type": "float",
+          "required": false,
+          "default": 20.0,
+          "value": 20.0,
+          "is_set": true,
+          "description": "Normalized collision energy."
+        },
+        "batch_size": {
+          "value_type": "integer",
+          "required": false,
+          "default": 64,
+          "value": 10,
+          "is_set": true,
+          "description": "Inference batch size for property prediction."
+        }
+      }
+    },
+    "output_and_runtime": {
+      "description": "Chunking, output path, and report/output-format settings.",
+      "options": {
+        "peptide_chunking": {
+          "value_type": "integer",
+          "required": false,
+          "default": 0,
+          "value": 0,
+          "is_set": true,
+          "description": "Peptide chunk size. A value of 0 means auto-calculate based on memory/batch size."
+        },
+        "output_file": {
+          "value_type": "string",
+          "required": false,
+          "default": "insilico_library.tsv",
+          "value": "easypqp_predicted_lib.tsv",
+          "is_set": true,
+          "description": "Output library file path. If parquet_output is true and output_file is omitted, the code default becomes insilico_library.parquet."
+        },
+        "write_report": {
+          "value_type": "boolean",
+          "required": false,
+          "default": true,
+          "value": true,
+          "is_set": true,
+          "description": "Whether to generate an HTML quality report."
+        },
+        "parquet_output": {
+          "value_type": "boolean",
+          "required": false,
+          "default": false,
+          "value": false,
+          "is_set": false,
+          "description": "Generate Parquet output instead of TSV."
+        }
+      }
+    }
+  }
+}
