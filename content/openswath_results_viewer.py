@@ -79,7 +79,6 @@ def _file_mtime_ns(path_str: str | None) -> int:
     return path.stat().st_mtime_ns
 
 
-@st.cache_data(show_spinner=False)
 def _discover_workspace_results(workspace_dir_str: str) -> dict[str, list[str]]:
     workspace = Path(workspace_dir_str)
     found: dict[str, list[str]] = {
