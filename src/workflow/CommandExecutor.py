@@ -52,7 +52,7 @@ class CommandExecutor:
 
         return max(1, int(value))
 
-    def run_multiple_commands(self, commands: list[str]) -> bool:
+    def run_multiple_commands(self, commands: list[str], cwd: str | None = None) -> bool:
         """
         Executes multiple shell commands concurrently in separate threads.
 
@@ -86,7 +86,7 @@ class CommandExecutor:
 
         def run_and_track(cmd):
             with semaphore:
-                success = self.run_command(cmd)
+                success = self.run_command(cmd, cwd=cwd)
                 with lock:
                     results.append(success)
 
@@ -112,12 +112,13 @@ class CommandExecutor:
 
         return all(results)
 
-    def run_command(self, command: list[str]) -> bool:
+    def run_command(self, command: list[str], cwd: str | None = None) -> bool:
         """
         Executes a specified shell command and logs its execution details.
 
         Args:
             command (list[str]): The shell command to execute, provided as a list of strings.
+            cwd (str | None): Optional working directory for the subprocess only.
 
         Raises:
             Exception: If the command execution results in any errors.
@@ -145,6 +146,7 @@ class CommandExecutor:
                 text=True,
                 bufsize=1,  # Line buffered
                 universal_newlines=True,
+                cwd=cwd,
             )
             child_pid = process.pid
             print(f"[DEBUG] Subprocess spawned successfully with PID: {child_pid}")
@@ -265,7 +267,13 @@ class CommandExecutor:
         stdout_thread.join()
         stderr_thread.join()
 
-    def run_topp(self, tool: str, input_output: dict, custom_params: dict = {}) -> bool:
+    def run_topp(
+        self,
+        tool: str,
+        input_output: dict,
+        custom_params: dict = {},
+        cwd: str | None = None,
+    ) -> bool:
         """
         Constructs and executes commands for the specified tool OpenMS TOPP tool based on the given
         input and output configurations. Ensures that all input/output file lists
@@ -335,38 +343,39 @@ class CommandExecutor:
             # Add non-default TOPP tool parameters
             if tool in params.keys():
                 for k, v in params[tool].items():
+                    # Skip unset optional TOPP values entirely.
+                    # Note: 0 and 0.0 are valid values, so use explicit checks.
+                    if v == "" or v is None:
+                        continue
                     command += [f"-{k}"]
-                    # Skip only empty strings (pass flag with no value)
-                    # Note: 0 and 0.0 are valid values, so use explicit check
-                    if v != "" and v is not None:
-                        if isinstance(v, str) and "\n" in v:
-                            command += v.split("\n")
-                        else:
-                            command += [str(v)]
-            # Add custom parameters
-            for k, v in custom_params.items():
-                command += [f"-{k}"]
-                # Skip only empty strings (pass flag with no value)
-                # Note: 0 and 0.0 are valid values, so use explicit check
-                if v != "" and v is not None:
-                    if isinstance(v, list):
-                        command += [str(x) for x in v]
+                    if isinstance(v, str) and "\n" in v:
+                        command += v.split("\n")
                     else:
                         command += [str(v)]
+            # Add custom parameters
+            for k, v in custom_params.items():
+                # Skip unset optional TOPP values entirely.
+                if v == "" or v is None:
+                    continue
+                command += [f"-{k}"]
+                if isinstance(v, list):
+                    command += [str(x) for x in v]
+                else:
+                    command += [str(v)]
             # Add threads parameter for TOPP tools
             command += ["-threads", str(threads_per_command)]
             commands.append(command)
 
             # check if a ini file has been written, if yes use it (contains custom defaults)
-            ini_path = Path(self.parameter_manager.ini_dir, tool + ".ini")
+            ini_path = Path(self.parameter_manager.ini_dir, tool + ".ini").resolve()
             if ini_path.exists():
                 command += ["-ini", str(ini_path)]
 
         # Run command(s)
         if len(commands) == 1:
-            return self.run_command(commands[0])
+            return self.run_command(commands[0], cwd=cwd)
         elif len(commands) > 1:
-            return self.run_multiple_commands(commands)
+            return self.run_multiple_commands(commands, cwd=cwd)
         else:
             raise Exception("No commands to execute.")
 
