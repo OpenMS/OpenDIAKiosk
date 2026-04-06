@@ -90,6 +90,31 @@ def _save_json_params(section_key: str, data: dict) -> None:
         json.dump(current, f, indent=4)
 
 
+def _saved_params() -> dict:
+    return pm.get_parameters_from_json()
+
+
+def _saved_flat_param(name: str, default=None):
+    return _saved_params().get(name, default)
+
+
+def _saved_tool_param(tool: str, name: str, default=None):
+    return _saved_params().get(tool, {}).get(name, default)
+
+
+def _seed_choice_state(widget_key: str, options: list[str], saved_value=None) -> None:
+    """Restore a saved select/radio choice when the current widget state is missing."""
+    if not options:
+        return
+    current_value = st.session_state.get(widget_key)
+    if current_value in options:
+        return
+    if saved_value in options:
+        st.session_state[widget_key] = saved_value
+    else:
+        st.session_state[widget_key] = options[0]
+
+
 # -----------------------------------------------------------------------------
 # Workspace file helpers
 
@@ -126,8 +151,7 @@ def _lib_files() -> list[str]:
 # -----------------------------------------------------------------------------
 # Advanced toggle (shared across all sections)
 
-if "advanced" not in st.session_state:
-    st.session_state["advanced"] = False
+# The global advanced toggle is initialized in page_setup()/render_sidebar().
 
 # -----------------------------------------------------------------------------
 # PAGE HEADER
@@ -166,9 +190,6 @@ with st.expander("ℹ️ Pipeline overview", expanded=False):
         """
     )
 
-# The global "advanced" toggle is provided in the main settings (common.py / StreamlitUI);
-# do not create a duplicate widget here.
-
 # -----------------------------------------------------------------------------
 # SECTION 0 — Workspace snapshot (read-only, always visible)
 
@@ -205,19 +226,29 @@ with col_lib:
 
 # --- Assay source selection (choose FASTA -> predict transitions, or use existing lists)
 if fasta_list and lib_list:
-    if "osag_input_mode" not in st.session_state:
-        st.session_state["osag_input_mode"] = (
-            "Generate from FASTA (predict transitions)"
-        )
+    mode_options = [
+        "Generate from FASTA (predict transitions)",
+        "Use existing transition list(s)",
+    ]
+    _seed_choice_state(
+        "osag_input_mode",
+        mode_options,
+        _saved_flat_param("osag_input_mode", mode_options[0]),
+    )
     mode = st.radio(
         "Assay source",
-        (
-            "Generate from FASTA (predict transitions)",
-            "Use existing transition list(s)",
-        ),
+        mode_options,
         key="osag_input_mode",
     )
     if mode == "Generate from FASTA (predict transitions)":
+        _seed_choice_state(
+            "osag_workspace_fasta",
+            fasta_list,
+            _saved_flat_param(
+                "osag_fasta",
+                _saved_flat_param("easypqp:database:fasta", fasta_list[0]),
+            ),
+        )
         sel = st.selectbox(
             "Select FASTA to use for prediction",
             options=fasta_list,
@@ -237,6 +268,14 @@ elif fasta_list and not lib_list:
         "Only FASTA files present — will generate predicted transition list from FASTA."
     )
     st.session_state["osag_input_mode"] = "Generate from FASTA (predict transitions)"
+    _seed_choice_state(
+        "osag_workspace_fasta_only",
+        fasta_list,
+        _saved_flat_param(
+            "osag_fasta",
+            _saved_flat_param("easypqp:database:fasta", fasta_list[0]),
+        ),
+    )
     sel = st.selectbox(
         "Select FASTA to use for prediction",
         options=fasta_list,
@@ -285,10 +324,20 @@ if (
             # Ensure a sensible initial FASTA selection is present in session state
             fasta_key = f"{PPFX}easypqp:database:fasta"
             if fasta_key not in st.session_state:
-                st.session_state[fasta_key] = fasta_list[0] if fasta_list else ""
+                st.session_state[fasta_key] = _saved_flat_param(
+                    "easypqp:database:fasta", fasta_list[0] if fasta_list else ""
+                )
 
             # Provide a FASTA dropdown (derived input) instead of the free-text field
             if fasta_list:
+                _seed_choice_state(
+                    "easypqp_fasta_sel",
+                    fasta_list,
+                    _saved_flat_param(
+                        "easypqp:database:fasta",
+                        _saved_flat_param("osag_fasta", fasta_list[0]),
+                    ),
+                )
                 sel = st.selectbox(
                     "Input FASTA (workspace)",
                     options=fasta_list,
@@ -302,12 +351,26 @@ if (
 
             # Interactive editor for static_mods (dict: residue -> mass)
             def _render_static(full_key, opt_def):
-                display = opt_def.get("description", "Static modifications")
                 editor_key = f"{full_key}_editor_static"
 
                 # initialize editor state
                 if editor_key not in st.session_state:
-                    init = opt_def.get("value") or opt_def.get("default") or {}
+                    short_key = full_key.replace(PPFX, "", 1)
+                    init = (
+                        st.session_state.get(
+                            full_key,
+                            _saved_flat_param(
+                                short_key,
+                                opt_def.get("value") or opt_def.get("default"),
+                            ),
+                        )
+                        or {}
+                    )
+                    if isinstance(init, str):
+                        try:
+                            init = json.loads(init)
+                        except Exception:
+                            init = {}
                     if isinstance(init, dict):
                         items = [(k, float(v)) for k, v in init.items()]
                     else:
@@ -381,11 +444,25 @@ if (
 
             # Interactive editor for variable_mods (dict: position -> list[float])
             def _render_variable(full_key, opt_def):
-                display = opt_def.get("description", "Variable modifications")
                 editor_key = f"{full_key}_editor_var"
 
                 if editor_key not in st.session_state:
-                    init = opt_def.get("value") or opt_def.get("default") or {}
+                    short_key = full_key.replace(PPFX, "", 1)
+                    init = (
+                        st.session_state.get(
+                            full_key,
+                            _saved_flat_param(
+                                short_key,
+                                opt_def.get("value") or opt_def.get("default"),
+                            ),
+                        )
+                        or {}
+                    )
+                    if isinstance(init, str):
+                        try:
+                            init = json.loads(init)
+                        except Exception:
+                            init = {}
                     if isinstance(init, dict):
                         items = [(k, [float(x) for x in v]) for k, v in init.items()]
                     else:
@@ -567,6 +644,11 @@ with st.expander(
                 )
                 st.session_state[f"{TPFX}OpenSwathAssayGenerator:1:in"] = osag_inputs[0]
             else:
+                _seed_choice_state(
+                    "osag_in_sel",
+                    osag_inputs,
+                    _saved_tool_param("OpenSwathAssayGenerator", "in", osag_inputs[0]),
+                )
                 osag_in = st.selectbox(
                     "Input transition list",
                     options=osag_inputs,
@@ -628,6 +710,13 @@ with st.expander("⚙️ OpenSwathDecoyGenerator Parameters", expanded=True):
                     0
                 ]
             else:
+                _seed_choice_state(
+                    "osdg_in_sel",
+                    decoy_in_opts,
+                    _saved_tool_param(
+                        "OpenSwathDecoyGenerator", "in", decoy_in_opts[0]
+                    ),
+                )
                 decoy_in = st.selectbox(
                     "Input transition list",
                     options=decoy_in_opts,
@@ -729,6 +818,11 @@ else:
                 st.session_state[f"{TPFX}OpenSwathWorkflow:1:tr"] = tr_candidates[0]
                 st.caption(f"→ `-tr {tr_candidates[0]}`")
             else:
+                _seed_choice_state(
+                    "osw_tr_sel",
+                    tr_candidates,
+                    _saved_tool_param("OpenSwathWorkflow", "tr", tr_candidates[0]),
+                )
                 tr_file = st.selectbox(
                     "Select transition library",
                     options=tr_candidates,
@@ -758,7 +852,14 @@ else:
         num_cols=3,
         display_tool_name=False,
         display_subsections=True,
-        exclude_parameters=["in", "tr", "out_features"],
+        exclude_parameters=[
+            "in",
+            "tr",
+            "out_features",
+            "tr_type",
+            "out_features_type",
+            "out_qc",
+        ],
     )
 
 # -----------------------------------------------------------------------------
