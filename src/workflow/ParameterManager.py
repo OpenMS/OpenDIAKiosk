@@ -50,6 +50,45 @@ class ParameterManager:
             return False
         return ini_path.exists()
 
+    def _coerce_topp_value(self, ini_value, value):
+        """
+        Coerce Streamlit widget values to the type expected by pyOpenMS Param.
+        """
+        if value is None:
+            if isinstance(ini_value, list):
+                return []
+            if isinstance(ini_value, bytes):
+                return b""
+            if isinstance(ini_value, str):
+                return ""
+            return ini_value
+
+        if isinstance(ini_value, list):
+            if value in (None, ""):
+                return []
+            if isinstance(value, str):
+                return value.split("\n")
+            if isinstance(value, tuple):
+                return list(value)
+            return value if isinstance(value, list) else [value]
+
+        if isinstance(ini_value, bool):
+            if isinstance(value, str):
+                return value.strip().lower() in ("true", "1", "yes", "on")
+            return bool(value)
+
+        if isinstance(ini_value, int) and not isinstance(ini_value, bool):
+            if value in (None, ""):
+                return ini_value
+            return int(value)
+
+        if isinstance(ini_value, float):
+            if value in (None, ""):
+                return ini_value
+            return float(value)
+
+        return value
+
     def save_parameters(self) -> None:
         """
         Saves the current parameters from Streamlit's session state to a JSON file.
@@ -57,37 +96,45 @@ class ParameterManager:
         ensuring that only non-default values are stored.
         """
         # Everything in session state which begins with self.param_prefix is saved to a json file
-        json_params = {
+        general_params = {
             k.replace(self.param_prefix, ""): v
             for k, v in st.session_state.items()
             if k.startswith(self.param_prefix)
         }
 
+        existing_params = self.get_parameters_from_json()
+
         # Merge with parameters from json
         # Advanced parameters are only in session state if the view is active
-        json_params = self.get_parameters_from_json() | json_params
+        json_params = existing_params | general_params
 
         # get a list of TOPP tools which are in session state
-        current_topp_tools = list(
-            set(
-                [
-                    k.replace(self.topp_param_prefix, "").split(":1:")[0]
-                    for k in st.session_state.keys()
-                    if k.startswith(f"{self.topp_param_prefix}")
-                ]
-            )
+        current_topp_tools = {
+            k.replace(self.topp_param_prefix, "").split(":1:")[0]
+            for k in st.session_state.keys()
+            if k.startswith(f"{self.topp_param_prefix}")
+        }
+        current_topp_tools.update(
+            tool
+            for tool, value in existing_params.items()
+            if isinstance(value, dict) and (self.ini_dir / f"{tool}.ini").exists()
         )
+
         # for each TOPP tool, open the ini file
         for tool in current_topp_tools:
             if not self.create_ini(tool):
                 # Could not create ini file - skip this tool
                 continue
             ini_path = Path(self.ini_dir, f"{tool}.ini")
-            if tool not in json_params:
-                json_params[tool] = {}
             # load the param object
             param = poms.Param()
             poms.ParamXMLFile().load(str(ini_path), param)
+            ini_keys = {str(k) for k in param.keys()}
+
+            # Keep only current-session deltas in params.json. The full persisted
+            # TOPP state is mirrored into the workspace INI file below.
+            json_params[tool] = {}
+
             # get all session state param keys and values for this tool
             for key, value in st.session_state.items():
                 if key.startswith(f"{self.topp_param_prefix}{tool}:1:"):
@@ -95,24 +142,31 @@ class ParameterManager:
                     if key.endswith("_display"):
                         continue
                     # get ini_key
-                    ini_key = key.replace(self.topp_param_prefix, "").encode()
+                    ini_key = key.replace(self.topp_param_prefix, "")
                     # Skip keys that don't correspond to actual ini entries
                     # (e.g., widget-specific keys like uploaders or display helpers)
-                    if ini_key not in param.keys():
+                    if ini_key not in ini_keys:
                         continue
                     # get ini (default) value by ini_key
                     ini_value = param.getValue(ini_key)
-                    is_list_param = isinstance(ini_value, list)
+                    coerced_value = self._coerce_topp_value(ini_value, value)
+                    short_key = key.split(":1:")[1]
+
+                    # Keep the workspace INI aligned with the current UI state.
+                    param.setValue(ini_key, coerced_value)
+
                     # check if value is different from default OR is an empty list parameter
                     if (
-                        (ini_value != value)
-                        or (key.split(":1:")[1] in json_params[tool])
-                        or (
-                            is_list_param and not value
-                        )  # Always save empty list params
+                        (ini_value != coerced_value)
+                        or (short_key in existing_params.get(tool, {}))
+                        or (isinstance(ini_value, list) and not coerced_value)
                     ):
                         # store non-default value
-                        json_params[tool][key.split(":1:")[1]] = value
+                        json_params[tool][short_key] = coerced_value
+
+            # Persist the current TOPP state in the workspace INI file so the UI
+            # rehydrates from the same source on the next page load.
+            poms.ParamXMLFile().store(str(ini_path), param)
         # Save to json file
         with open(self.params_file, "w", encoding="utf-8") as f:
             json.dump(json_params, f, indent=4)
