@@ -1,0 +1,580 @@
+"""
+src/workflow/OpenSwathWorkflow.py
+
+WorkflowManager subclass that runs the full OpenSWATH pipeline.
+
+Configuration is read from:
+  workspace/params.json          — saved by openswath_configuration.py
+  workspace/ini/*.ini            — OpenMS TOPP tool descriptors
+
+Pipeline:
+  1. [Optional] EasyPQP in-silico    → easypqp_insilico_library.tsv
+  2.            OpenSwathAssayGenerator → openswathassay_targets.tsv
+  3.            OpenSwathDecoyGenerator → openswath_targets_and_decoys.pqp
+  4.            OpenSwathWorkflow       → openswath_results.osw
+  5.            PyProphet               → openswath_results.tsv
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import streamlit as st
+
+from .WorkflowManager import WorkflowManager
+
+
+# Fixed file-names for intermediate and final outputs
+_EPQP_OUT = "easypqp_insilico_library.tsv"
+_OSAG_OUT = "openswathassay_targets.tsv"
+_OSDG_OUT = "openswath_targets_and_decoys.pqp"
+_OSW_OUT = "openswath_results.osw"
+_PY_OUT = "openswath_results.tsv"
+
+_RUN_MODE_KEY = "openswath_run_mode"
+_RUN_RESUME_STEP_KEY = "openswath_resume_step"
+_RUN_MODE_FRESH = "fresh"
+_RUN_MODE_RESUME = "resume"
+
+_STEP_LABELS = {
+    "easypqp": "EasyPQP",
+    "osag": "OpenSwathAssayGenerator",
+    "osdg": "OpenSwathDecoyGenerator",
+    "openswathworkflow": "OpenSwathWorkflow",
+    "pyprophet": "PyProphet",
+}
+
+
+class OpenSwathWorkflow(WorkflowManager):
+    """
+    Full OpenSWATH pipeline as a WorkflowManager.
+
+    Execution reads all configuration from:
+      * ``workspace/params.json``  (written by the configuration page)
+      * ``workspace/ini/*.ini``    (TOPP tool INI files)
+
+    Usage (in a content page)::
+
+        wf = OpenSwathWorkflow()
+        wf.show_execution_section()
+        wf.show_results_section()
+    """
+
+    def __init__(self) -> None:
+        workspace = st.session_state["workspace"]
+        super().__init__("OpenSwath Workflow", workspace)
+        # The configuration page saves params relative to workspace_dir,
+        # not to our workflow_dir.  Keep a pointer to the shared params file.
+        self._workspace_dir = Path(workspace)
+        self._workspace_params_file = self._workspace_dir / "params.json"
+        # Shared INI dir (same as config page uses)
+        self._shared_ini_dir = self._workspace_dir / "ini"
+
+    # ------------------------------------------------------------------
+    # Helpers
+
+    def _ensure_workspace_context(self) -> None:
+        """
+        Rebuild shared workspace paths when the object was created outside the
+        normal Streamlit page flow (for example queue workers).
+        """
+        if hasattr(self, "_workspace_dir"):
+            return
+
+        workflow_dir = Path(self.workflow_dir)
+        self._workspace_dir = workflow_dir.parent
+        self._workspace_params_file = self._workspace_dir / "params.json"
+        self._shared_ini_dir = self._workspace_dir / "ini"
+
+    def _load_workspace_params(self) -> dict:
+        """Load params.json saved by the configuration page."""
+        self._ensure_workspace_context()
+        if self._workspace_params_file.exists():
+            try:
+                with open(self._workspace_params_file, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_workspace_param(self, name: str, value) -> None:
+        self._ensure_workspace_context()
+        params = self._load_workspace_params()
+        params[name] = value
+        self._workspace_params_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._workspace_params_file, "w", encoding="utf-8") as f:
+            json.dump(params, f, indent=4)
+
+    def _ini(self, tool: str) -> str | None:
+        """Return the INI path for *tool* if it exists in the shared ini dir."""
+        self._ensure_workspace_context()
+        p = self._shared_ini_dir / f"{tool}.ini"
+        return str(p) if p.exists() else None
+
+    def _workspace_file(self, *parts) -> Path:
+        self._ensure_workspace_context()
+        return self._workspace_dir.joinpath(*parts)
+
+    def _pipeline_steps(self, use_easypqp: bool) -> list[str]:
+        steps: list[str] = []
+        if use_easypqp:
+            steps.append("easypqp")
+        steps.extend(["osag", "osdg", "openswathworkflow", "pyprophet"])
+        return steps
+
+    def _step_output_paths(self, results_dir: Path) -> dict[str, Path]:
+        return {
+            "easypqp": results_dir / "insilico" / _EPQP_OUT,
+            "osag": results_dir / "osag" / _OSAG_OUT,
+            "osdg": results_dir / "osdg" / _OSDG_OUT,
+            "openswathworkflow": results_dir / _OSW_OUT,
+            "pyprophet": results_dir / _PY_OUT,
+        }
+
+    def _cleanup_targets(self, results_dir: Path) -> dict[str, list[Path]]:
+        return {
+            "easypqp": [results_dir / "insilico"],
+            "osag": [results_dir / "osag"],
+            "osdg": [results_dir / "osdg"],
+            "openswathworkflow": [results_dir / _OSW_OUT, results_dir / _PY_OUT],
+            "pyprophet": [results_dir / _PY_OUT],
+        }
+
+    def _normalize_run_settings(
+        self, cfg: dict, use_easypqp: bool
+    ) -> tuple[str, str, list[str]]:
+        steps = self._pipeline_steps(use_easypqp)
+        mode = cfg.get(_RUN_MODE_KEY, _RUN_MODE_FRESH)
+        if mode not in (_RUN_MODE_FRESH, _RUN_MODE_RESUME):
+            mode = _RUN_MODE_FRESH
+
+        resume_step = cfg.get(_RUN_RESUME_STEP_KEY, steps[0])
+        if resume_step not in steps:
+            resume_step = steps[0]
+
+        return mode, resume_step, steps
+
+    def _missing_resume_prerequisites(
+        self, start_step: str, use_easypqp: bool, results_dir: Path
+    ) -> list[tuple[str, Path]]:
+        steps = self._pipeline_steps(use_easypqp)
+        outputs = self._step_output_paths(results_dir)
+        start_index = steps.index(start_step)
+        missing: list[tuple[str, Path]] = []
+        for step in steps[:start_index]:
+            path = outputs[step]
+            if not path.exists():
+                missing.append((_STEP_LABELS[step], path))
+        return missing
+
+    def _clear_results_from_step(
+        self, start_step: str, use_easypqp: bool, results_dir: Path
+    ) -> None:
+        steps = self._pipeline_steps(use_easypqp)
+        cleanup_targets = self._cleanup_targets(results_dir)
+        start_index = steps.index(start_step)
+
+        seen: set[Path] = set()
+        for step in steps[start_index:]:
+            for path in cleanup_targets.get(step, []):
+                if path in seen or not path.exists():
+                    continue
+                seen.add(path)
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+
+    def _persist_execution_preference(self, param_name: str, session_key: str) -> None:
+        self._save_workspace_param(param_name, st.session_state.get(session_key))
+
+    def should_reset_results_dir(self) -> bool:
+        cfg = self._load_workspace_params()
+        use_easypqp = (
+            cfg.get("osag_input_mode", "Use existing transition list(s)")
+            == "Generate from FASTA (predict transitions)"
+        )
+        mode, _, _ = self._normalize_run_settings(cfg, use_easypqp)
+        return mode == _RUN_MODE_FRESH
+
+    def show_execution_section(self) -> None:
+        cfg = self._load_workspace_params()
+        use_easypqp = (
+            cfg.get("osag_input_mode", "Use existing transition list(s)")
+            == "Generate from FASTA (predict transitions)"
+        )
+        mode, resume_step, steps = self._normalize_run_settings(cfg, use_easypqp)
+
+        mode_key = f"{self.workflow_dir.stem}-execution-mode"
+        step_key = f"{self.workflow_dir.stem}-execution-resume-step"
+        st.session_state[mode_key] = mode
+        st.session_state[step_key] = resume_step
+
+        st.markdown("**Rerun Behavior**")
+        st.caption(
+            "Start from scratch deletes previous workflow outputs. "
+            "Reuse mode keeps successful upstream results and reruns the selected step and everything after it."
+        )
+
+        st.radio(
+            "Execution mode",
+            options=[_RUN_MODE_FRESH, _RUN_MODE_RESUME],
+            format_func=lambda value: {
+                _RUN_MODE_FRESH: "Start from scratch",
+                _RUN_MODE_RESUME: "Reuse previous successful outputs",
+            }[value],
+            key=mode_key,
+            horizontal=True,
+            on_change=self._persist_execution_preference,
+            args=(_RUN_MODE_KEY, mode_key),
+        )
+
+        if st.session_state[mode_key] == _RUN_MODE_RESUME:
+            st.selectbox(
+                "Resume at step",
+                options=steps,
+                format_func=lambda value: _STEP_LABELS[value],
+                key=step_key,
+                on_change=self._persist_execution_preference,
+                args=(_RUN_RESUME_STEP_KEY, step_key),
+            )
+
+            selected_step = st.session_state[step_key]
+            missing = self._missing_resume_prerequisites(
+                selected_step, use_easypqp, self.workflow_dir / "results"
+            )
+            if missing:
+                missing_text = ", ".join(
+                    f"{label} (`{path.relative_to(self.workflow_dir)}`)"
+                    for label, path in missing
+                )
+                st.warning(
+                    f"Resume from {_STEP_LABELS[selected_step]} requires existing outputs from prior steps: {missing_text}."
+                )
+            else:
+                reused_steps = steps[: steps.index(selected_step)]
+                if reused_steps:
+                    st.caption(
+                        "Upstream outputs to reuse: "
+                        + ", ".join(_STEP_LABELS[step] for step in reused_steps)
+                    )
+
+        super().show_execution_section()
+
+    def _mzml_paths(self) -> list[str]:
+        """Resolve full paths for all mzML files in the workspace."""
+        self._ensure_workspace_context()
+        mzml_dir = self._workspace_dir / "mzML-files"
+        paths: list[str] = []
+        if mzml_dir.exists():
+            for p in mzml_dir.iterdir():
+                if p.is_file() and "external_files.txt" not in p.name:
+                    paths.append(str(p))
+            ext_file = mzml_dir / "external_files.txt"
+            if ext_file.exists():
+                paths += [
+                    l.strip() for l in ext_file.read_text().splitlines() if l.strip()
+                ]
+        return paths
+
+    # ------------------------------------------------------------------
+    # Step implementations
+
+    def _run_easypqp(self, cfg: dict, results_dir: Path) -> bool:
+        """Build and execute the easypqp insilico-library command."""
+        exe = shutil.which("easypqp")
+        if not exe:
+            self.logger.log("❌ 'easypqp' not found in PATH.")
+            return False
+
+        fasta_name = cfg.get("fasta", "")
+        if not fasta_name:
+            self.logger.log("❌ No FASTA file configured for EasyPQP.")
+            return False
+
+        fasta_path = self._workspace_file("input-files", "fasta", fasta_name)
+        if not fasta_path.exists():
+            self.logger.log(f"❌ FASTA file not found: {fasta_path}")
+            return False
+
+        out_dir = results_dir / "insilico"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / _EPQP_OUT
+        # Prefer using a saved config file in the workspace tools-configs
+        config_path = self._workspace_file(
+            "tools-configs", "easypqp", "easypqp_insilico.json"
+        )
+        if config_path.exists():
+            self.logger.log(f"Using EasyPQP config from workspace: {config_path}")
+            cmd = [
+                exe,
+                "insilico-library",
+                "--fasta",
+                str(fasta_path),
+                "--output_file",
+                str(out_file),
+                "--config",
+                str(config_path),
+            ]
+            return self.executor.run_command(cmd)
+
+    def _run_osag(self, in_file: str, out_file: str) -> bool:
+        """Run OpenSwathAssayGenerator via executor.run_topp()."""
+        ini = self._ini("OpenSwathAssayGenerator")
+        if ini is None:
+            self.logger.log(
+                "⚠️ OpenSwathAssayGenerator.ini not found — using tool defaults."
+            )
+
+        # Temporarily point the shared ini dir into the parameter manager's ini dir
+        # so that run_topp picks it up automatically (it appends -ini <path>).
+        # We copy the shared ini into the workflow ini dir if needed.
+        self._ensure_ini_in_workflow("OpenSwathAssayGenerator")
+
+        return self.executor.run_topp(
+            "OpenSwathAssayGenerator",
+            input_output={
+                "in": [in_file],
+                "out": [out_file],
+            },
+        )
+
+    def _run_osdg(self, in_file: str, out_file: str) -> bool:
+        """Run OpenSwathDecoyGenerator via executor.run_topp()."""
+        self._ensure_ini_in_workflow("OpenSwathDecoyGenerator")
+        return self.executor.run_topp(
+            "OpenSwathDecoyGenerator",
+            input_output={
+                "in": [in_file],
+                "out": [out_file],
+            },
+        )
+
+    def _run_openswath(
+        self, tr_file: str, mzml_paths: list[str], out_file: str
+    ) -> bool:
+        """Run OpenSwathWorkflow via executor.run_topp()."""
+        self._ensure_ini_in_workflow("OpenSwathWorkflow")
+        return self.executor.run_topp(
+            "OpenSwathWorkflow",
+            input_output={
+                "in": [mzml_paths],  # pass as a single grouped list
+                "tr": [tr_file],
+                "out_features": [out_file],
+            },
+        )
+
+    def _run_pyprophet(self, osw_in: str, tsv_out: str) -> bool:
+        """Run pyprophet score → infer peptide → infer protein → export tsv."""
+        exe = shutil.which("pyprophet")
+        if not exe:
+            self.logger.log("❌ 'pyprophet' not found in PATH.")
+            return False
+
+        subcommands: list[tuple[str, list[str]]] = [
+            ("score", [exe, "score", "--in", osw_in]),
+            ("infer peptide", [exe, "infer", "peptide", "--in", osw_in]),
+            ("infer protein", [exe, "infer", "protein", "--in", osw_in]),
+            ("export tsv", [exe, "export", "tsv", "--in", osw_in, "--out", tsv_out]),
+        ]
+
+        for label, cmd in subcommands:
+            self.logger.log(f"Running pyprophet {label}…")
+            if not self.executor.run_command(cmd):
+                self.logger.log(f"❌ pyprophet {label} failed.")
+                return False
+            self.logger.log(f"✅ pyprophet {label} completed.")
+
+        return True
+
+    def _ensure_ini_in_workflow(self, tool: str) -> None:
+        """
+        Copy the shared INI (from workspace/ini/) into the workflow INI dir
+        so that executor.run_topp() can find it (it appends -ini <path>).
+        """
+        self._ensure_workspace_context()
+        shared = self._shared_ini_dir / f"{tool}.ini"
+        dest = self.parameter_manager.ini_dir / f"{tool}.ini"
+        if not shared.exists():
+            return
+
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(shared, dest)
+            self.logger.log(f"Using synced INI for {tool}: {dest}")
+        except Exception as e:
+            self.logger.log(f"⚠️ Could not copy {tool}.ini: {e}")
+
+    # ------------------------------------------------------------------
+    # Main execution entry-point-
+
+    def execution(self) -> bool:
+        """
+        Execute the full OpenSWATH pipeline.
+
+        Reads all configuration from workspace/params.json (written by the
+        configuration page).  Intermediate files are written under
+        ``workflow_dir/results/``.
+        """
+        self.logger.log("=" * 70)
+        self.logger.log("OPENSWATH PIPELINE — STARTING")
+        self.logger.log("=" * 70)
+
+        # -- Load configuration --------------------------------------------
+        cfg = self._load_workspace_params()
+        ep_cfg = cfg.get("easypqp", {})
+        osag_mode = cfg.get("osag_input_mode", "Use existing transition list(s)")
+        use_easypqp = osag_mode == "Generate from FASTA (predict transitions)"
+        run_mode, start_step, steps = self._normalize_run_settings(cfg, use_easypqp)
+
+        results_dir = self.workflow_dir / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        self.logger.log(f"Assay source mode: {osag_mode}")
+        self.logger.log(f"EasyPQP enabled: {use_easypqp}")
+        if run_mode == _RUN_MODE_FRESH:
+            self.logger.log("Execution mode: start from scratch")
+            start_step = steps[0]
+        else:
+            self.logger.log(
+                f"Execution mode: reuse outputs from {_STEP_LABELS[start_step]}"
+            )
+            missing = self._missing_resume_prerequisites(
+                start_step, use_easypqp, results_dir
+            )
+            if missing:
+                self.logger.log(
+                    "❌ Resume requested but required upstream outputs are missing:"
+                )
+                for label, path in missing:
+                    self.logger.log(f"  - {label}: {path}")
+                return False
+            self._clear_results_from_step(start_step, use_easypqp, results_dir)
+            self.logger.log(
+                f"Cleared outputs for {_STEP_LABELS[start_step]} and downstream steps."
+            )
+        start_index = steps.index(start_step)
+
+        # -- Resolve mzML file paths ---------------------------------------
+        mzml_paths = self._mzml_paths()
+        if not mzml_paths:
+            self.logger.log("❌ No mzML files found in workspace.")
+            return False
+        self.logger.log(
+            f"mzML files ({len(mzml_paths)}): {[Path(p).name for p in mzml_paths]}"
+        )
+
+        step_outputs = self._step_output_paths(results_dir)
+
+        # -- Step 1: EasyPQP (optional) ------------------------------------
+        if use_easypqp:
+            osag_in = str(step_outputs["easypqp"])
+            if steps.index("easypqp") >= start_index:
+                self.logger.log("-" * 50)
+                self.logger.log("STEP 1: EasyPQP in-silico library generation")
+                if not self._run_easypqp(ep_cfg, results_dir):
+                    return False
+            else:
+                self.logger.log(f"Reusing EasyPQP output: {osag_in}")
+        else:
+            # Use existing library from workspace
+            lib_dir = self._workspace_file("input-files", "libraries")
+            lib_file = cfg.get("osag_library_input", "")
+            if lib_file:
+                osag_in = str(lib_dir / lib_file)
+            else:
+                libs = sorted(lib_dir.iterdir()) if lib_dir.exists() else []
+                if not libs:
+                    self.logger.log(
+                        "❌ No transition library found and EasyPQP is disabled."
+                    )
+                    return False
+                osag_in = str(libs[0])
+                self.logger.log(f"Auto-selected library: {libs[0].name}")
+
+        self.logger.log(f"OSAG input: {osag_in}")
+
+        # -- Step 2: OpenSwathAssayGenerator ------------------------------
+        osag_dir = results_dir / "osag"
+        osag_out = str(step_outputs["osag"])
+        if steps.index("osag") >= start_index:
+            self.logger.log("-" * 50)
+            self.logger.log("STEP 2: OpenSwathAssayGenerator")
+            osag_dir.mkdir(parents=True, exist_ok=True)
+            if not self._run_osag(osag_in, osag_out):
+                return False
+        else:
+            self.logger.log(f"Reusing OpenSwathAssayGenerator output: {osag_out}")
+
+        # -- Step 3: OpenSwathDecoyGenerator ------------------------------
+        osdg_dir = results_dir / "osdg"
+        osdg_out = str(step_outputs["osdg"])
+        if steps.index("osdg") >= start_index:
+            self.logger.log("-" * 50)
+            self.logger.log("STEP 3: OpenSwathDecoyGenerator")
+            osdg_dir.mkdir(parents=True, exist_ok=True)
+            if not self._run_osdg(osag_out, osdg_out):
+                return False
+        else:
+            self.logger.log(f"Reusing OpenSwathDecoyGenerator output: {osdg_out}")
+
+        # -- Step 4: OpenSwathWorkflow -------------------------------------
+        osw_out = str(step_outputs["openswathworkflow"])
+        if steps.index("openswathworkflow") >= start_index:
+            self.logger.log("-" * 50)
+            self.logger.log("STEP 4: OpenSwathWorkflow")
+            if not self._run_openswath(osdg_out, mzml_paths, osw_out):
+                return False
+        else:
+            self.logger.log(f"Reusing OpenSwathWorkflow output: {osw_out}")
+
+        # -- Step 5: PyProphet ---------------------------------------------
+        py_out = str(step_outputs["pyprophet"])
+        if steps.index("pyprophet") >= start_index:
+            self.logger.log("-" * 50)
+            self.logger.log("STEP 5: PyProphet score / infer / export")
+            if not self._run_pyprophet(osw_out, py_out):
+                return False
+        else:
+            self.logger.log(f"Reusing PyProphet output: {py_out}")
+
+        self.logger.log("=" * 70)
+        self.logger.log("OPENSWATH PIPELINE — COMPLETED SUCCESSFULLY")
+        self.logger.log("=" * 70)
+        return True
+
+    # ------------------------------------------------------------------
+    # Results display
+
+    def results(self) -> None:
+        """Display output files with download buttons."""
+        import streamlit as st
+
+        results_dir = self.workflow_dir / "results"
+        output_candidates = {
+            "EasyPQP library": results_dir / "insilico" / _EPQP_OUT,
+            "OSAG assay targets": results_dir / "osag" / _OSAG_OUT,
+            "OSDG targets + decoys": results_dir / "osdg" / _OSDG_OUT,
+            "OpenSWATH features (.osw)": results_dir / _OSW_OUT,
+            "PyProphet results (.tsv)": results_dir / _PY_OUT,
+        }
+
+        any_output = False
+        for label, path in output_candidates.items():
+            if path.exists():
+                any_output = True
+                size_kb = path.stat().st_size / 1024
+                col_a, col_b = st.columns([4, 1])
+                col_a.markdown(f"**{label}** — `{path.name}` ({size_kb:.1f} KB)")
+                with open(path, "rb") as fh:
+                    col_b.download_button(
+                        "⬇️ Download",
+                        data=fh,
+                        file_name=path.name,
+                        key=f"dl_osw_{path.stem}",
+                    )
+
+        if not any_output:
+            st.info("No output files yet — run the workflow above to generate results.")
