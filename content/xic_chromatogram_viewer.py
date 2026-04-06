@@ -1,17 +1,16 @@
 """
 xic_chromatogram_viewer.py — XIC Chromatogram Viewer
 
-Upload one or more .xic Parquet files produced by OpenMS (pyopenms >= 3.6.0),
-select a precursor of interest from the shared analyte list, and view aligned
-chromatograms for every uploaded file side-by-side.
+Select one or more workspace .xic Parquet files produced by OpenMS
+(pyopenms >= 3.6.0), choose a precursor of interest from the shared analyte
+list, and view aligned chromatograms for every selected file side-by-side.
 
-Optional: upload an OpenSwath OSW SQLite file to overlay feature peak
-boundaries and inspect peak-group level feature information.
+Optional: select an OpenSwath OSW SQLite file from the workspace to overlay
+feature peak boundaries and inspect peak-group level feature information.
 """
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +20,6 @@ import streamlit as st
 from scipy.signal import savgol_filter
 
 from src.common.common import page_setup
-from src import fileupload
 from src.osw_utils import OSWFile
 
 # -- pyopenms version guard ----------------------------------------------------
@@ -41,6 +39,7 @@ except ImportError:
     POMS_OK = False
 
 page_setup()
+workspace_dir = Path(st.session_state.get("workspace", ".")).resolve()
 
 # -----------------------------------------------------------------------------
 # Page header
@@ -48,11 +47,12 @@ page_setup()
 st.title("📊 XIC Chromatogram Viewer")
 st.markdown(
     """
-Upload one or more **`.xic` Parquet files** (OpenMS XIC format, requires
+Select one or more workspace **`.xic` Parquet files** (OpenMS XIC format, requires
 pyopenms >= 3.6.0), choose a peptide precursor from the shared analyte list,
 and visualise the extracted ion chromatograms for every file simultaneously.
 
-You can also upload an **OSW SQLite feature file** to overlay feature peak
+Use the **File Upload** page to add XIC or OSW files to the workspace first.
+You can also select an **OSW SQLite feature file** to overlay feature peak
 boundaries from the `FEATURE` table and inspect the corresponding peak-group
 feature information.
 """
@@ -120,6 +120,70 @@ for _k, _v in _defaults.items():
 
 # -----------------------------------------------------------------------------
 # Helper functions
+
+
+def _workspace_relative_label(path_str: str) -> str:
+    path = Path(path_str)
+    try:
+        return str(path.resolve().relative_to(workspace_dir))
+    except ValueError:
+        return str(path)
+
+
+def _discover_workspace_xic_files() -> dict[str, str]:
+    """Return workspace XIC/parquet files keyed by relative display label."""
+    discovered: dict[str, str] = {}
+    if not workspace_dir.exists():
+        return discovered
+
+    for pattern in ("*.xic", "*.parquet"):
+        for path in workspace_dir.rglob(pattern):
+            if not path.is_file():
+                continue
+            label = _workspace_relative_label(str(path))
+            discovered[label] = str(path.resolve())
+
+    return dict(sorted(discovered.items(), key=lambda item: item[0].lower()))
+
+
+def _discover_workspace_osw_files() -> dict[str, str]:
+    """Return workspace OSW files keyed by relative display label."""
+    discovered: dict[str, str] = {}
+    if not workspace_dir.exists():
+        return discovered
+
+    for path in workspace_dir.rglob("*.osw"):
+        if not path.is_file():
+            continue
+        label = _workspace_relative_label(str(path))
+        discovered[label] = str(path.resolve())
+
+    return dict(sorted(discovered.items(), key=lambda item: item[0].lower()))
+
+
+def _clear_loaded_xic_selection() -> None:
+    """Clear loaded XIC data from session state without deleting workspace files."""
+    st.session_state.xic_tmp_paths = []
+    st.session_state.file_analytes = {}
+    st.session_state.xic_run_metadata = {}
+    st.session_state.shared_analytes = None
+    st.session_state.files_loaded = False
+    st.session_state.boundary_run_mapping = {}
+
+
+def _clear_loaded_osw_file() -> None:
+    """Clear loaded OSW metadata from session state."""
+    if st.session_state.get("osw_handler") is not None:
+        try:
+            st.session_state.osw_handler.close()
+        except Exception:
+            pass
+
+    st.session_state.osw_file_path = None
+    st.session_state.osw_file_name = None
+    st.session_state.osw_handler = None
+    st.session_state.osw_runs_df = None
+    st.session_state.boundary_run_mapping = {}
 
 
 def _load_analytes_and_run_metadata(tmp_path: str) -> tuple[pd.DataFrame, dict[str, object]]:
@@ -223,12 +287,12 @@ def _guess_osw_run_mapping(
     xic_run_metadata: dict[str, dict[str, object]],
     osw_runs_df: pd.DataFrame,
 ) -> dict[str, Optional[int]]:
-    """Best-effort mapping of uploaded XIC files to OSW RUN.ID values.
+    """Best-effort mapping of selected XIC files to OSW RUN.ID values.
 
     Priority:
     1. Match XIC run_id to OSW RUN.ID
     2. Match XIC source_file to OSW RUN.FILENAME
-    3. Match uploaded XIC display name to OSW RUN.FILENAME
+    3. Match selected XIC display name to OSW RUN.FILENAME
     """
     mapping: dict[str, Optional[int]] = {}
     if osw_runs_df is None or osw_runs_df.empty:
@@ -287,29 +351,15 @@ def _guess_osw_run_mapping(
     return mapping
 
 
-def _save_uploaded_osw_file(uploaded_osw) -> str:
-    """Persist uploaded OSW file to a temporary path and return the path."""
-    suffix = Path(uploaded_osw.name).suffix or ".osw"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded_osw.getbuffer())
-        return tmp.name
+def _load_osw_file_from_path(osw_path_str: str) -> None:
+    """Load a workspace OSW file into session state."""
+    _clear_loaded_osw_file()
 
-
-
-def _load_osw_file(uploaded_osw) -> None:
-    """Load an uploaded OSW file into session state."""
-    if st.session_state.get("osw_handler") is not None:
-        try:
-            st.session_state.osw_handler.close()
-        except Exception:
-            pass
-
-    osw_tmp_path = _save_uploaded_osw_file(uploaded_osw)
-    osw_handler = OSWFile(osw_tmp_path)
+    osw_handler = OSWFile(osw_path_str)
     osw_runs_df = osw_handler.list_runs()
 
-    st.session_state.osw_file_path = osw_tmp_path
-    st.session_state.osw_file_name = uploaded_osw.name
+    st.session_state.osw_file_path = osw_path_str
+    st.session_state.osw_file_name = Path(osw_path_str).name
     st.session_state.osw_handler = osw_handler
     st.session_state.osw_runs_df = osw_runs_df
 
@@ -513,18 +563,43 @@ def _format_feature_table(boundaries_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # -----------------------------------------------------------------------------
-# SECTION 1 — File upload
+# SECTION 1 — Workspace file selection
 
-st.subheader("📂 Upload XIC Files")
+st.subheader("📂 Workspace XIC Files")
+
+workspace_xic_files = _discover_workspace_xic_files()
+workspace_osw_files = _discover_workspace_osw_files()
+
+loaded_xic_defaults = [
+    label
+    for label, _ in st.session_state.get("xic_tmp_paths", [])
+    if label in workspace_xic_files
+]
+osw_options: list[str | None] = [None] + list(workspace_osw_files.keys())
+loaded_osw_default = None
+if st.session_state.get("osw_file_path"):
+    current_osw = str(Path(st.session_state.osw_file_path).resolve())
+    for label, path_str in workspace_osw_files.items():
+        if str(Path(path_str).resolve()) == current_osw:
+            loaded_osw_default = label
+            break
 
 col_up1, col_up2 = st.columns([3, 1])
 with col_up1:
-    uploaded_files = st.file_uploader(
-        "Upload one or more `.xic` Parquet files",
-        type=["xic", "parquet"],
-        accept_multiple_files=True,
-        help="OpenMS XIC Parquet files (produced by XICParquetFile, pyopenms >= 3.6.0).",
-        key="xic_uploader",
+    selected_xic_files = st.multiselect(
+        "Select one or more `.xic` / parquet files from the workspace",
+        options=list(workspace_xic_files.keys()),
+        default=loaded_xic_defaults,
+        help="Use the File Upload page to add XIC files to the workspace.",
+        key="workspace_xic_selection",
+    )
+    selected_osw_label = st.selectbox(
+        "Optional OSW feature file",
+        options=osw_options,
+        index=osw_options.index(loaded_osw_default),
+        format_func=lambda value: "None" if value is None else value,
+        help="Select an OSW file already present in the workspace.",
+        key="workspace_osw_selection",
     )
 with col_up2:
     analyte_mode = st.radio(
@@ -540,25 +615,26 @@ with col_up2:
 load_btn = st.button(
     "▶ Load Files",
     type="primary",
-    disabled=(not uploaded_files),
-    help="Parse the uploaded XIC files and build the shared precursor list.",
+    disabled=(not selected_xic_files),
+    help="Parse the selected workspace XIC files and build the shared precursor list.",
 )
 
-if load_btn and uploaded_files:
-    with st.spinner("Saving uploaded XIC files to workspace and reading analyte tables…"):
+if not workspace_xic_files:
+    st.info(
+        "No XIC/parquet files were found in the current workspace. "
+        "Upload them on the File Upload page first."
+    )
+
+if load_btn and selected_xic_files:
+    with st.spinner("Reading selected XIC analyte tables from the workspace…"):
         progress = st.progress(0)
         tmp_paths: list[tuple[str, str]] = []
         file_analytes: dict[str, pd.DataFrame] = {}
         xic_run_metadata: dict[str, dict[str, object]] = {}
         errors: list[str] = []
 
-        try:
-            saved_files = fileupload.save_uploaded_xic(uploaded_files)
-        except Exception as exc:
-            st.error(f"Failed to save uploaded XIC files: {exc}")
-            saved_files = []
-
-        for i, (display, tmp_path) in enumerate(saved_files):
+        for i, display in enumerate(selected_xic_files):
+            tmp_path = workspace_xic_files[display]
             try:
                 analytes, run_meta = _load_analytes_and_run_metadata(tmp_path)
                 tmp_paths.append((display, tmp_path))
@@ -567,13 +643,22 @@ if load_btn and uploaded_files:
             except Exception as exc:
                 errors.append(f"**{display}**: {exc}")
 
-            progress.progress(int(100 * (i + 1) / max(1, len(saved_files))))
+            progress.progress(int(100 * (i + 1) / max(1, len(selected_xic_files))))
 
         if errors:
-            for e in errors:
-                st.error(e)
+            for error in errors:
+                st.error(error)
 
         if file_analytes:
+            if selected_osw_label is not None:
+                try:
+                    _load_osw_file_from_path(workspace_osw_files[selected_osw_label])
+                except Exception as exc:
+                    st.error(f"Failed to load OSW file: {exc}")
+                    _clear_loaded_osw_file()
+            else:
+                _clear_loaded_osw_file()
+
             shared = _build_shared_analytes(file_analytes, mode=analyte_mode.lower())
             st.session_state.xic_tmp_paths = tmp_paths
             st.session_state.file_analytes = file_analytes
@@ -596,45 +681,26 @@ if load_btn and uploaded_files:
                 f"({analyte_mode.lower()} of all files)."
             )
         else:
-            st.error("No files could be loaded. Check that the files are valid XIC Parquet files.")
+            st.error(
+                "No files could be loaded. Check that the selected files are valid XIC Parquet files."
+            )
 
 # -----------------------------------------------------------------------------
-# SECTION 1B — Optional OSW upload and run mapping
+# SECTION 1B — OSW run mapping
 
 st.markdown("---")
-st.subheader("🧭 Optional OSW feature file")
-
-osw_col1, osw_col2 = st.columns([3, 1])
-with osw_col1:
-    uploaded_osw = st.file_uploader(
-        "Upload an OSW SQLite file",
-        type=["osw", "sqlite", "db"],
-        accept_multiple_files=False,
-        help="Optional OpenSwath OSW file used to fetch feature boundaries and peak-group information.",
-        key="osw_uploader",
-    )
-with osw_col2:
-    osw_load_btn = st.button(
-        "Load OSW",
-        type="secondary",
-        disabled=(uploaded_osw is None),
-        help="Load the OSW file and list its runs.",
-    )
-
-if osw_load_btn and uploaded_osw is not None:
-    try:
-        _load_osw_file(uploaded_osw)
-        n_runs = 0 if st.session_state.osw_runs_df is None else len(st.session_state.osw_runs_df)
-        st.success(f"Loaded OSW file **{uploaded_osw.name}** with **{n_runs}** run(s).")
-    except Exception as exc:
-        st.error(f"Failed to load OSW file: {exc}")
+st.subheader("🧭 OSW Run Mapping")
 
 if st.session_state.get("osw_file_name"):
     st.caption(f"Loaded OSW file: {st.session_state.osw_file_name}")
+elif workspace_osw_files:
+    st.caption("Select an OSW file above and reload the selected XIC files to enable peak-boundary overlays.")
+else:
+    st.caption("No OSW files were found in the workspace.")
 
 if st.session_state.get("osw_runs_df") is not None and not st.session_state.osw_runs_df.empty:
     with st.expander("OSW run mapping", expanded=False):
-        st.caption("Map each uploaded XIC file to the correct OSW RUN.ID. Auto-matching tries XIC run_id first, then XIC source_file, then the uploaded filename.")
+        st.caption("Map each loaded XIC file to the correct OSW RUN.ID. Auto-matching tries XIC run_id first, then XIC source_file, then the workspace filename.")
         runs_df = st.session_state.osw_runs_df.copy()
         run_options = {"None": None}
         for _, row in runs_df.iterrows():
@@ -882,17 +948,17 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
             options=all_file_names,
             default=all_file_names,
             key="runs_sel",
-            help="Choose which uploaded runs should be rendered.",
+            help="Choose which loaded workspace runs should be rendered.",
         )
     with runs_ctl_col2:
         clear_btn = st.button(
-            "🗑️ Clear loaded XIC files",
+            "🗑️ Clear loaded selection",
             type="secondary",
             disabled=(not bool(all_file_names)),
-            help="Remove all uploaded XIC files from the workspace and clear the viewer.",
+            help="Clear the currently loaded XIC selection without deleting workspace files.",
         )
         if clear_btn:
-            fileupload.remove_all_xic_files()
+            _clear_loaded_xic_selection()
             st.rerun()
 
     boundary_mode_col1, boundary_mode_col2 = st.columns(2)
