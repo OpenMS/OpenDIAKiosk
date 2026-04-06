@@ -54,6 +54,20 @@ ASSET_EPQP = Path(
 )
 ASSET_PY = Path("assets", "common-tool-descriptors", "pyprophet")
 
+OSW_XIC_OUT = "openswath_results_chromatograms.xic"
+OSW_XIM_OUT = "openswath_results_mobilograms.xim"
+OSW_DEBUG_IM_OUT = "_debug_calibration_im.txt"
+OSW_DEBUG_MZ_OUT = "_debug_calibration_mz.txt"
+OSW_DEBUG_IRT_TRAFO_OUT = "_debug_calibration_irt.trafoXML"
+OSW_DEBUG_IRT_MZML_OUT = "_debug_calibration_irt_chrom.mzML"
+OSW_CACHE_DIR = workspace_dir / "openswath-workflow-temp"
+PY_MATRIX_LEVELS = ["precursor", "peptide", "protein"]
+PY_MATRIX_OUTS = {
+    "precursor": "openswath_results.precursor.tsv",
+    "peptide": "openswath_results.peptide.tsv",
+    "protein": "openswath_results.protein.tsv",
+}
+
 
 def _copy_ini_once(asset_dir: Path, dest_name: str) -> Path | None:
     """
@@ -113,6 +127,18 @@ def _seed_choice_state(widget_key: str, options: list[str], saved_value=None) ->
         st.session_state[widget_key] = saved_value
     else:
         st.session_state[widget_key] = options[0]
+
+
+def _seed_multiselect_state(
+    widget_key: str, options: list[str], saved_values: list[str] | None = None
+) -> None:
+    """Restore a saved multiselect choice when the current widget state is missing."""
+    if widget_key in st.session_state:
+        current = st.session_state.get(widget_key, [])
+        st.session_state[widget_key] = [value for value in current if value in options]
+        return
+    saved_values = saved_values or []
+    st.session_state[widget_key] = [value for value in saved_values if value in options]
 
 
 # -----------------------------------------------------------------------------
@@ -765,7 +791,9 @@ if not osw_inis:
     )
 else:
     selected_ini_name = next(
-        (n.name for n in osw_inis if "release" in n.name.lower()), osw_inis[-1].name
+        # (n.name for n in osw_inis if "release" in n.name.lower()), osw_inis[-1].name
+        (n.name for n in osw_inis if "dev" in n.name.lower()),
+        osw_inis[-1].name,
     )
     dest_osw = INI_DIR / "OpenSwathWorkflow.ini"
     if not dest_osw.exists():
@@ -845,6 +873,167 @@ else:
         help="Result OSW file — passed to PyProphet in the next step.",
     )
 
+    st.markdown("**Optional OpenSwath Outputs**")
+    aux_col1, aux_col2 = st.columns(2)
+
+    save_xics_key = "osw_save_xics"
+    save_xims_key = "osw_save_xims"
+    chrom_key = f"{TPFX}OpenSwathWorkflow:1:out_chrom"
+    mobil_key = f"{TPFX}OpenSwathWorkflow:1:out_mobilogram"
+
+    if save_xics_key not in st.session_state:
+        saved_chrom = _saved_tool_param("OpenSwathWorkflow", "out_chrom", None)
+        st.session_state[save_xics_key] = (
+            bool(saved_chrom) if saved_chrom is not None else True
+        )
+    if save_xims_key not in st.session_state:
+        saved_mobil = _saved_tool_param("OpenSwathWorkflow", "out_mobilogram", None)
+        st.session_state[save_xims_key] = (
+            bool(saved_mobil) if saved_mobil is not None else False
+        )
+
+    with aux_col1:
+        save_xics = st.checkbox(
+            "Save XICs",
+            key=save_xics_key,
+            help="Write extracted ion chromatograms as a fixed Parquet `.xic` output.",
+        )
+        st.text_input(
+            "Chromatogram output",
+            value=OSW_XIC_OUT if save_xics else "(disabled)",
+            disabled=True,
+            key="osw_xic_output_display",
+        )
+    with aux_col2:
+        save_xims = st.checkbox(
+            "Save XIMs",
+            key=save_xims_key,
+            help="Write extracted ion mobilograms as a fixed Parquet `.xim` output.",
+        )
+        st.text_input(
+            "Mobilogram output",
+            value=OSW_XIM_OUT if save_xims else "(disabled)",
+            disabled=True,
+            key="osw_xim_output_display",
+        )
+
+    st.session_state[chrom_key] = OSW_XIC_OUT if save_xics else ""
+    st.session_state[mobil_key] = OSW_XIM_OUT if save_xims else ""
+
+    st.markdown("**Calibration Debug Outputs**")
+    debug_toggle_key = "osw_save_calibration_debug"
+    debug_irt_mzml_key = f"{TPFX}OpenSwathWorkflow:1:Debugging:irt_mzml"
+    debug_irt_trafo_key = f"{TPFX}OpenSwathWorkflow:1:Debugging:irt_trafo"
+    debug_im_key = f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_im_file"
+    debug_mz_key = f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_mz_file"
+
+    saved_debug_enabled = any(
+        [
+            _saved_tool_param("OpenSwathWorkflow", "Debugging:irt_mzml", ""),
+            _saved_tool_param("OpenSwathWorkflow", "Debugging:irt_trafo", ""),
+            _saved_tool_param(
+                "OpenSwathWorkflow",
+                "Calibration:MassIMCorrection:debug_im_file",
+                "",
+            ),
+            _saved_tool_param(
+                "OpenSwathWorkflow",
+                "Calibration:MassIMCorrection:debug_mz_file",
+                "",
+            ),
+        ]
+    )
+    if debug_toggle_key not in st.session_state:
+        st.session_state[debug_toggle_key] = bool(saved_debug_enabled)
+
+    save_debug_outputs = st.checkbox(
+        "Save calibration debug files",
+        key=debug_toggle_key,
+        help="Write fixed debug outputs for ion mobility calibration, m/z calibration, and iRT calibration artifacts.",
+    )
+    debug_display_col1, debug_display_col2 = st.columns(2)
+    with debug_display_col1:
+        st.text_input(
+            "Ion mobility debug file",
+            value=OSW_DEBUG_IM_OUT if save_debug_outputs else "(disabled)",
+            disabled=True,
+            key="osw_debug_im_display",
+        )
+        st.text_input(
+            "m/z debug file",
+            value=OSW_DEBUG_MZ_OUT if save_debug_outputs else "(disabled)",
+            disabled=True,
+            key="osw_debug_mz_display",
+        )
+    with debug_display_col2:
+        st.text_input(
+            "iRT transform debug file",
+            value=OSW_DEBUG_IRT_TRAFO_OUT if save_debug_outputs else "(disabled)",
+            disabled=True,
+            key="osw_debug_trafo_display",
+        )
+        st.text_input(
+            "iRT chromatogram debug file",
+            value=OSW_DEBUG_IRT_MZML_OUT if save_debug_outputs else "(disabled)",
+            disabled=True,
+            key="osw_debug_irt_mzml_display",
+        )
+
+    st.session_state[debug_irt_mzml_key] = (
+        OSW_DEBUG_IRT_MZML_OUT if save_debug_outputs else ""
+    )
+    st.session_state[debug_irt_trafo_key] = (
+        OSW_DEBUG_IRT_TRAFO_OUT if save_debug_outputs else ""
+    )
+    st.session_state[debug_im_key] = OSW_DEBUG_IM_OUT if save_debug_outputs else ""
+    st.session_state[debug_mz_key] = OSW_DEBUG_MZ_OUT if save_debug_outputs else ""
+
+    st.markdown("**Input Read Mode**")
+    read_options = [
+        "normal",
+        "cache",
+        "workingInMemory",
+        "cacheWorkingInMemory",
+    ]
+    read_option_help = {
+        "normal": "No on-disk caching. Streams the input directly and is the lowest-overhead option for a single pass.",
+        "cache": "Creates cached files on disk first and reads from those cached files. Useful for random access or repeated passes.",
+        "workingInMemory": "Loads the regular OpenSWATH access objects into RAM for faster repeated access. Does not create disk cache files.",
+        "cacheWorkingInMemory": "Creates disk cache files first, then loads that cached representation into memory.",
+    }
+    read_option_widget_key = "osw_read_options"
+    temp_dir_key = f"{TPFX}OpenSwathWorkflow:1:tempDirectory"
+    saved_read_option = _saved_tool_param("OpenSwathWorkflow", "readOptions", "normal")
+    _seed_choice_state(read_option_widget_key, read_options, saved_read_option)
+
+    read_mode_col, read_info_col = st.columns([1.2, 1.8])
+    with read_mode_col:
+        selected_read_option = st.selectbox(
+            "Read option",
+            options=read_options,
+            key=read_option_widget_key,
+            help="Controls whether OpenSWATH streams input directly, caches to disk, or loads data into memory.",
+        )
+    with read_info_col:
+        st.caption(read_option_help[selected_read_option])
+
+    st.session_state[f"{TPFX}OpenSwathWorkflow:1:readOptions"] = selected_read_option
+    if selected_read_option in {"cache", "cacheWorkingInMemory"}:
+        OSW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        st.session_state[temp_dir_key] = str(OSW_CACHE_DIR.resolve())
+        st.text_input(
+            "Workspace cache directory",
+            value=str(OSW_CACHE_DIR.resolve()),
+            disabled=True,
+            key="osw_cache_dir_display",
+            help="Automatically created for cache-based OpenSWATH read modes.",
+        )
+    else:
+        st.session_state[temp_dir_key] = "/tmp"
+        st.caption(
+            "No dedicated workspace cache directory is needed for this read mode."
+        )
+
     # -- INI-driven parameter widgets ------------------------------------------
     st.markdown("**OpenSwathWorkflow Parameters**")
     ui.input_TOPP(
@@ -856,6 +1045,14 @@ else:
             "in",
             "tr",
             "out_features",
+            "out_chrom",
+            "out_mobilogram",
+            "irt_mzml",
+            "irt_trafo",
+            "debug_im_file",
+            "debug_mz_file",
+            "readOptions",
+            "tempDirectory",
             "tr_type",
             "out_features_type",
             "out_qc",
@@ -994,6 +1191,165 @@ else:
         py.ui()
     except Exception:
         st.warning("PyProphet UI unavailable.")
+
+matrix_cfg_path = (
+    workspace_dir
+    / "tools-configs"
+    / "pyprophet"
+    / "pyprophet_export_matrix_config.json"
+)
+matrix_saved = _load_json_asset(matrix_cfg_path) if matrix_cfg_path.exists() else {}
+
+with st.expander("⚙️ pyprophet export matrix", expanded=False):
+    st.caption(
+        "Export quantification matrices at selected precursor, peptide, and protein levels. "
+        "Each selected level writes a fixed output file into the workflow results directory."
+    )
+
+    _seed_multiselect_state(
+        "pyprophet_matrix_levels",
+        PY_MATRIX_LEVELS,
+        matrix_saved.get("levels", []),
+    )
+    matrix_levels = st.multiselect(
+        "Matrix export levels",
+        options=PY_MATRIX_LEVELS,
+        key="pyprophet_matrix_levels",
+        help="Choose which matrix quantification levels to export after scoring and inference.",
+    )
+
+    for level in PY_MATRIX_LEVELS:
+        if level in matrix_levels:
+            st.caption(f"`{level}` → `{PY_MATRIX_OUTS[level]}`")
+
+    matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
+    matrix_col1.caption("Outputs are written as fixed TSV files.")
+    matrix_transition_quant = matrix_col2.checkbox(
+        "Transition quantification",
+        value=matrix_saved.get("transition_quantification", True),
+        key="pyprophet_matrix_transition_quantification",
+        help="Report aggregated transition-level quantification.",
+    )
+    matrix_use_alignment = matrix_col3.checkbox(
+        "Use alignment",
+        value=matrix_saved.get("use_alignment", True),
+        key="pyprophet_matrix_use_alignment",
+        help="Recover peaks with good alignment scores if alignment data is present.",
+    )
+
+    matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
+    matrix_col1.number_input(
+        "Max transition PEP",
+        value=float(matrix_saved.get("max_transition_pep", 0.7)),
+        step=0.05,
+        key="pyprophet_matrix_max_transition_pep",
+    )
+    matrix_col2.selectbox(
+        "IPF mode",
+        options=["peptidoform", "augmented", "disable"],
+        index=["peptidoform", "augmented", "disable"].index(
+            matrix_saved.get("ipf", "peptidoform")
+        ),
+        key="pyprophet_matrix_ipf",
+    )
+    matrix_col3.number_input(
+        "IPF max peptidoform PEP",
+        value=float(matrix_saved.get("ipf_max_peptidoform_pep", 0.4)),
+        step=0.05,
+        key="pyprophet_matrix_ipf_max_peptidoform_pep",
+    )
+
+    matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
+    matrix_col1.number_input(
+        "Max run-specific peakgroup q-value",
+        value=float(matrix_saved.get("max_rs_peakgroup_qvalue", 0.05)),
+        step=0.01,
+        key="pyprophet_matrix_max_rs_peakgroup_qvalue",
+    )
+    matrix_col2.number_input(
+        "Max global peptide q-value",
+        value=float(matrix_saved.get("max_global_peptide_qvalue", 0.01)),
+        step=0.01,
+        key="pyprophet_matrix_max_global_peptide_qvalue",
+    )
+    matrix_col3.number_input(
+        "Max global protein q-value",
+        value=float(matrix_saved.get("max_global_protein_qvalue", 0.01)),
+        step=0.01,
+        key="pyprophet_matrix_max_global_protein_qvalue",
+    )
+
+    matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
+    matrix_col1.number_input(
+        "Max alignment PEP",
+        value=float(matrix_saved.get("max_alignment_pep", 0.7)),
+        step=0.05,
+        key="pyprophet_matrix_max_alignment_pep",
+    )
+    matrix_col2.number_input(
+        "Top N features",
+        min_value=1,
+        value=int(matrix_saved.get("top_n", 3)),
+        step=1,
+        key="pyprophet_matrix_top_n",
+    )
+    matrix_col3.checkbox(
+        "Consistent top features",
+        value=matrix_saved.get("consistent_top", True),
+        key="pyprophet_matrix_consistent_top",
+        help="Use the same top features across all runs.",
+    )
+
+    st.selectbox(
+        "Normalization",
+        options=["none", "median", "medianmedian", "quantile"],
+        index=["none", "median", "medianmedian", "quantile"].index(
+            matrix_saved.get("normalization", "none")
+        ),
+        key="pyprophet_matrix_normalization",
+    )
+
+    try:
+        matrix_cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(matrix_cfg_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "levels": st.session_state.get("pyprophet_matrix_levels", []),
+                    "csv": False,
+                    "transition_quantification": matrix_transition_quant,
+                    "max_transition_pep": st.session_state.get(
+                        "pyprophet_matrix_max_transition_pep", 0.7
+                    ),
+                    "ipf": st.session_state.get("pyprophet_matrix_ipf", "peptidoform"),
+                    "ipf_max_peptidoform_pep": st.session_state.get(
+                        "pyprophet_matrix_ipf_max_peptidoform_pep", 0.4
+                    ),
+                    "max_rs_peakgroup_qvalue": st.session_state.get(
+                        "pyprophet_matrix_max_rs_peakgroup_qvalue", 0.05
+                    ),
+                    "max_global_peptide_qvalue": st.session_state.get(
+                        "pyprophet_matrix_max_global_peptide_qvalue", 0.01
+                    ),
+                    "max_global_protein_qvalue": st.session_state.get(
+                        "pyprophet_matrix_max_global_protein_qvalue", 0.01
+                    ),
+                    "use_alignment": matrix_use_alignment,
+                    "max_alignment_pep": st.session_state.get(
+                        "pyprophet_matrix_max_alignment_pep", 0.7
+                    ),
+                    "top_n": st.session_state.get("pyprophet_matrix_top_n", 3),
+                    "consistent_top": st.session_state.get(
+                        "pyprophet_matrix_consistent_top", True
+                    ),
+                    "normalization": st.session_state.get(
+                        "pyprophet_matrix_normalization", "none"
+                    ),
+                },
+                f,
+                indent=2,
+            )
+    except Exception as e:
+        st.warning(f"Could not auto-save pyprophet export matrix config: {e}")
 
 # -----------------------------------------------------------------------------
 # SAVE button
