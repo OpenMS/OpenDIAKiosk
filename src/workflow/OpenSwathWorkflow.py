@@ -32,6 +32,18 @@ _OSAG_OUT = "openswathassay_targets.tsv"
 _OSDG_OUT = "openswath_targets_and_decoys.pqp"
 _OSW_OUT = "openswath_results.osw"
 _PY_OUT = "openswath_results.tsv"
+_OSW_XIC_OUT = "openswath_results_chromatograms.xic"
+_OSW_XIM_OUT = "openswath_results_mobilograms.xim"
+_OSW_DEBUG_IM_OUT = "_debug_calibration_im.txt"
+_OSW_DEBUG_MZ_OUT = "_debug_calibration_mz.txt"
+_OSW_DEBUG_IRT_TRAFO_OUT = "_debug_calibration_irt.trafoXML"
+_OSW_DEBUG_IRT_MZML_OUT = "_debug_calibration_irt_chrom.mzML"
+_OSW_CACHE_DIR = "openswath-workflow-temp"
+_PY_MATRIX_OUTS = {
+    "precursor": "openswath_results.precursor.tsv",
+    "peptide": "openswath_results.peptide.tsv",
+    "protein": "openswath_results.protein.tsv",
+}
 
 _RUN_MODE_KEY = "openswath_run_mode"
 _RUN_RESUME_STEP_KEY = "openswath_resume_step"
@@ -117,6 +129,28 @@ class OpenSwathWorkflow(WorkflowManager):
         self._ensure_workspace_context()
         return self._workspace_dir.joinpath(*parts)
 
+    def _load_tool_config(self, *parts) -> dict:
+        path = self._workspace_file(*parts)
+        if not path.exists():
+            return {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _debug_output_matches(self, results_dir: Path) -> list[Path]:
+        matches: dict[str, Path] = {}
+        for suffix in (
+            _OSW_DEBUG_IM_OUT,
+            _OSW_DEBUG_MZ_OUT,
+            _OSW_DEBUG_IRT_TRAFO_OUT,
+            _OSW_DEBUG_IRT_MZML_OUT,
+        ):
+            for path in results_dir.glob(f"*{suffix}"):
+                matches[str(path.resolve())] = path
+        return sorted(matches.values(), key=lambda path: path.name)
+
     def _pipeline_steps(self, use_easypqp: bool) -> list[str]:
         steps: list[str] = []
         if use_easypqp:
@@ -138,8 +172,17 @@ class OpenSwathWorkflow(WorkflowManager):
             "easypqp": [results_dir / "insilico"],
             "osag": [results_dir / "osag"],
             "osdg": [results_dir / "osdg"],
-            "openswathworkflow": [results_dir / _OSW_OUT, results_dir / _PY_OUT],
-            "pyprophet": [results_dir / _PY_OUT],
+            "openswathworkflow": [
+                results_dir / _OSW_OUT,
+                results_dir / _OSW_XIC_OUT,
+                results_dir / _OSW_XIM_OUT,
+                results_dir / _PY_OUT,
+                *[results_dir / name for name in _PY_MATRIX_OUTS.values()],
+            ],
+            "pyprophet": [
+                results_dir / _PY_OUT,
+                *[results_dir / name for name in _PY_MATRIX_OUTS.values()],
+            ],
         }
 
     def _normalize_run_settings(
@@ -186,6 +229,10 @@ class OpenSwathWorkflow(WorkflowManager):
                     shutil.rmtree(path, ignore_errors=True)
                 else:
                     path.unlink(missing_ok=True)
+
+        if "openswathworkflow" in steps[start_index:]:
+            for path in self._debug_output_matches(results_dir):
+                path.unlink(missing_ok=True)
 
     def _persist_execution_preference(self, param_name: str, session_key: str) -> None:
         self._save_workspace_param(param_name, st.session_state.get(session_key))
@@ -353,32 +400,185 @@ class OpenSwathWorkflow(WorkflowManager):
         )
 
     def _run_openswath(
-        self, tr_file: str, mzml_paths: list[str], out_file: str
+        self,
+        cfg: dict,
+        tr_file: str,
+        mzml_paths: list[str],
+        out_file: str,
+        results_dir: Path,
     ) -> bool:
         """Run OpenSwathWorkflow via executor.run_topp()."""
         self._ensure_ini_in_workflow("OpenSwathWorkflow")
+        custom_params: dict[str, str] = {}
+        results_dir_abs = results_dir.resolve()
+
+        osw_cfg = cfg.get("OpenSwathWorkflow", {})
+        if osw_cfg.get("out_chrom"):
+            custom_params["out_chrom"] = str(results_dir_abs / _OSW_XIC_OUT)
+        if osw_cfg.get("out_mobilogram"):
+            custom_params["out_mobilogram"] = str(results_dir_abs / _OSW_XIM_OUT)
+        if osw_cfg.get("Calibration:MassIMCorrection:debug_im_file"):
+            custom_params["Calibration:MassIMCorrection:debug_im_file"] = (
+                _OSW_DEBUG_IM_OUT
+            )
+        if osw_cfg.get("Calibration:MassIMCorrection:debug_mz_file"):
+            custom_params["Calibration:MassIMCorrection:debug_mz_file"] = (
+                _OSW_DEBUG_MZ_OUT
+            )
+        if osw_cfg.get("Debugging:irt_trafo"):
+            custom_params["Debugging:irt_trafo"] = _OSW_DEBUG_IRT_TRAFO_OUT
+        if osw_cfg.get("Debugging:irt_mzml"):
+            custom_params["Debugging:irt_mzml"] = _OSW_DEBUG_IRT_MZML_OUT
+
+        read_option = osw_cfg.get("readOptions")
+        if read_option:
+            custom_params["readOptions"] = read_option
+        if read_option in {"cache", "cacheWorkingInMemory"}:
+            cache_dir = self._workspace_file(_OSW_CACHE_DIR)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            custom_params["tempDirectory"] = str(cache_dir.resolve())
+            self.logger.log(f"Using workspace cache directory: {cache_dir.resolve()}")
+
+        command_inputs = {
+            "in": [[str(Path(path).resolve()) for path in mzml_paths]],
+            "tr": [str(Path(tr_file).resolve())],
+            "out_features": [str(Path(out_file).resolve())],
+        }
+
         return self.executor.run_topp(
             "OpenSwathWorkflow",
-            input_output={
-                "in": [mzml_paths],  # pass as a single grouped list
-                "tr": [tr_file],
-                "out_features": [out_file],
-            },
+            input_output=command_inputs,
+            custom_params=custom_params,
+            cwd=str(results_dir_abs),
         )
 
-    def _run_pyprophet(self, osw_in: str, tsv_out: str) -> bool:
-        """Run pyprophet score → infer peptide → infer protein → export tsv."""
+    def _run_pyprophet(self, osw_in: str, tsv_out: str, results_dir: Path) -> bool:
+        """Run pyprophet score → infer peptide → infer protein → exports."""
         exe = shutil.which("pyprophet")
         if not exe:
             self.logger.log("❌ 'pyprophet' not found in PATH.")
             return False
 
+        tsv_cfg = self._load_tool_config(
+            "tools-configs", "pyprophet", "pyprophet_export_tsv_config.json"
+        )
+        tsv_cmd = [exe, "export", "tsv", "--in", osw_in, "--out", tsv_out]
+        if tsv_cfg.get("format"):
+            tsv_cmd += ["--format", str(tsv_cfg["format"])]
+        if tsv_cfg.get("csv"):
+            tsv_cmd.append("--csv")
+        tsv_cmd.append(
+            "--transition_quantification"
+            if tsv_cfg.get("transition_quantification", True)
+            else "--no-transition_quantification"
+        )
+        if tsv_cfg.get("max_transition_pep") is not None:
+            tsv_cmd += ["--max_transition_pep", str(tsv_cfg["max_transition_pep"])]
+        if tsv_cfg.get("ipf"):
+            tsv_cmd += ["--ipf", str(tsv_cfg["ipf"])]
+        if tsv_cfg.get("ipf_max_peptidoform_pep") is not None:
+            tsv_cmd += [
+                "--ipf_max_peptidoform_pep",
+                str(tsv_cfg["ipf_max_peptidoform_pep"]),
+            ]
+        if tsv_cfg.get("max_rs_peakgroup_qvalue") is not None:
+            tsv_cmd += [
+                "--max_rs_peakgroup_qvalue",
+                str(tsv_cfg["max_rs_peakgroup_qvalue"]),
+            ]
+        if tsv_cfg.get("max_global_peptide_qvalue") is not None:
+            tsv_cmd += [
+                "--max_global_peptide_qvalue",
+                str(tsv_cfg["max_global_peptide_qvalue"]),
+            ]
+        if tsv_cfg.get("max_global_protein_qvalue") is not None:
+            tsv_cmd += [
+                "--max_global_protein_qvalue",
+                str(tsv_cfg["max_global_protein_qvalue"]),
+            ]
+        tsv_cmd.append(
+            "--use_alignment"
+            if tsv_cfg.get("use_alignment", True)
+            else "--no-use_alignment"
+        )
+        if tsv_cfg.get("max_alignment_pep") is not None:
+            tsv_cmd += ["--max_alignment_pep", str(tsv_cfg["max_alignment_pep"])]
+
         subcommands: list[tuple[str, list[str]]] = [
             ("score", [exe, "score", "--in", osw_in]),
             ("infer peptide", [exe, "infer", "peptide", "--in", osw_in]),
             ("infer protein", [exe, "infer", "protein", "--in", osw_in]),
-            ("export tsv", [exe, "export", "tsv", "--in", osw_in, "--out", tsv_out]),
+            ("export tsv", tsv_cmd),
         ]
+
+        matrix_cfg = self._load_tool_config(
+            "tools-configs", "pyprophet", "pyprophet_export_matrix_config.json"
+        )
+        matrix_levels = [
+            level
+            for level in matrix_cfg.get("levels", [])
+            if level in _PY_MATRIX_OUTS
+        ]
+        for level in matrix_levels:
+            cmd = [
+                exe,
+                "export",
+                "matrix",
+                "--in",
+                osw_in,
+                "--out",
+                str(results_dir / _PY_MATRIX_OUTS[level]),
+                "--level",
+                level,
+            ]
+            if matrix_cfg.get("csv"):
+                cmd.append("--csv")
+            cmd.append(
+                "--transition_quantification"
+                if matrix_cfg.get("transition_quantification", True)
+                else "--no-transition_quantification"
+            )
+            if matrix_cfg.get("max_transition_pep") is not None:
+                cmd += ["--max_transition_pep", str(matrix_cfg["max_transition_pep"])]
+            if matrix_cfg.get("ipf"):
+                cmd += ["--ipf", str(matrix_cfg["ipf"])]
+            if matrix_cfg.get("ipf_max_peptidoform_pep") is not None:
+                cmd += [
+                    "--ipf_max_peptidoform_pep",
+                    str(matrix_cfg["ipf_max_peptidoform_pep"]),
+                ]
+            if matrix_cfg.get("max_rs_peakgroup_qvalue") is not None:
+                cmd += [
+                    "--max_rs_peakgroup_qvalue",
+                    str(matrix_cfg["max_rs_peakgroup_qvalue"]),
+                ]
+            if matrix_cfg.get("max_global_peptide_qvalue") is not None:
+                cmd += [
+                    "--max_global_peptide_qvalue",
+                    str(matrix_cfg["max_global_peptide_qvalue"]),
+                ]
+            if matrix_cfg.get("max_global_protein_qvalue") is not None:
+                cmd += [
+                    "--max_global_protein_qvalue",
+                    str(matrix_cfg["max_global_protein_qvalue"]),
+                ]
+            cmd.append(
+                "--use_alignment"
+                if matrix_cfg.get("use_alignment", True)
+                else "--no-use_alignment"
+            )
+            if matrix_cfg.get("max_alignment_pep") is not None:
+                cmd += ["--max_alignment_pep", str(matrix_cfg["max_alignment_pep"])]
+            if matrix_cfg.get("top_n") is not None:
+                cmd += ["--top_n", str(matrix_cfg["top_n"])]
+            cmd.append(
+                "--consistent_top"
+                if matrix_cfg.get("consistent_top", True)
+                else "--no-consistent_top"
+            )
+            if matrix_cfg.get("normalization"):
+                cmd += ["--normalization", str(matrix_cfg["normalization"])]
+            subcommands.append((f"export matrix ({level})", cmd))
 
         for label, cmd in subcommands:
             self.logger.log(f"Running pyprophet {label}…")
@@ -525,7 +725,7 @@ class OpenSwathWorkflow(WorkflowManager):
         if steps.index("openswathworkflow") >= start_index:
             self.logger.log("-" * 50)
             self.logger.log("STEP 4: OpenSwathWorkflow")
-            if not self._run_openswath(osdg_out, mzml_paths, osw_out):
+            if not self._run_openswath(cfg, osdg_out, mzml_paths, osw_out, results_dir):
                 return False
         else:
             self.logger.log(f"Reusing OpenSwathWorkflow output: {osw_out}")
@@ -535,7 +735,7 @@ class OpenSwathWorkflow(WorkflowManager):
         if steps.index("pyprophet") >= start_index:
             self.logger.log("-" * 50)
             self.logger.log("STEP 5: PyProphet score / infer / export")
-            if not self._run_pyprophet(osw_out, py_out):
+            if not self._run_pyprophet(osw_out, py_out, results_dir):
                 return False
         else:
             self.logger.log(f"Reusing PyProphet output: {py_out}")
@@ -558,7 +758,12 @@ class OpenSwathWorkflow(WorkflowManager):
             "OSAG assay targets": results_dir / "osag" / _OSAG_OUT,
             "OSDG targets + decoys": results_dir / "osdg" / _OSDG_OUT,
             "OpenSWATH features (.osw)": results_dir / _OSW_OUT,
+            "OpenSWATH chromatograms (.xic)": results_dir / _OSW_XIC_OUT,
+            "OpenSWATH mobilograms (.xim)": results_dir / _OSW_XIM_OUT,
             "PyProphet results (.tsv)": results_dir / _PY_OUT,
+            "PyProphet precursor matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["precursor"],
+            "PyProphet peptide matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["peptide"],
+            "PyProphet protein matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["protein"],
         }
 
         any_output = False
@@ -573,7 +778,27 @@ class OpenSwathWorkflow(WorkflowManager):
                         "⬇️ Download",
                         data=fh,
                         file_name=path.name,
-                        key=f"dl_osw_{path.stem}",
+                        key=f"dl_osw_{path.name}",
+                    )
+
+        debug_prefixes = [
+            ("OpenSWATH IM calibration debug (.txt)", _OSW_DEBUG_IM_OUT),
+            ("OpenSWATH m/z calibration debug (.txt)", _OSW_DEBUG_MZ_OUT),
+            ("OpenSWATH iRT transform debug (.trafoXML)", _OSW_DEBUG_IRT_TRAFO_OUT),
+            ("OpenSWATH iRT chromatogram debug (.mzML)", _OSW_DEBUG_IRT_MZML_OUT),
+        ]
+        for label, suffix in debug_prefixes:
+            for path in sorted(results_dir.glob(f"*{suffix}")):
+                any_output = True
+                size_kb = path.stat().st_size / 1024
+                col_a, col_b = st.columns([4, 1])
+                col_a.markdown(f"**{label}** — `{path.name}` ({size_kb:.1f} KB)")
+                with open(path, "rb") as fh:
+                    col_b.download_button(
+                        "⬇️ Download",
+                        data=fh,
+                        file_name=path.name,
+                        key=f"dl_osw_{path.name}",
                     )
 
         if not any_output:
