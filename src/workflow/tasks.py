@@ -90,11 +90,9 @@ def execute_workflow(
         # Store job reference for progress updates
         workflow._rq_job = job
 
-        # Clear results directory
+        # Prepare results directory
         results_dir = workflow_path / "results"
-        if results_dir.exists():
-            shutil.rmtree(results_dir)
-        results_dir.mkdir(parents=True)
+        workflow.prepare_results_dir(results_dir)
 
         # Log workflow start
         logger.log("STARTING WORKFLOW")

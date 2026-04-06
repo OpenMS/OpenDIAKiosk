@@ -121,10 +121,8 @@ class WorkflowManager:
             print("[DEBUG] Logger initialized, about to clean results directory")
 
             results_dir = Path(self.workflow_dir, "results")
-            if results_dir.exists():
-                shutil.rmtree(results_dir)
-            results_dir.mkdir(parents=True)
-            self.logger.log(f"Results directory created: {results_dir}")
+            self.prepare_results_dir(results_dir)
+            self.logger.log(f"Results directory ready: {results_dir}")
 
             print("[DEBUG] About to call self.execution()...")
             self.logger.log("Calling execution() method...")
@@ -285,6 +283,20 @@ class WorkflowManager:
         Shows the results section of the UI with content defined in self.results().
         """
         self.ui.results_section(self.results)
+
+    def should_reset_results_dir(self) -> bool:
+        """
+        Whether the workflow should delete the full results directory before a run.
+        """
+        return True
+
+    def prepare_results_dir(self, results_dir: Path) -> None:
+        """
+        Prepare the results directory for execution.
+        """
+        if self.should_reset_results_dir() and results_dir.exists():
+            shutil.rmtree(results_dir)
+        results_dir.mkdir(parents=True, exist_ok=True)
 
     def upload(self) -> None:
         """
