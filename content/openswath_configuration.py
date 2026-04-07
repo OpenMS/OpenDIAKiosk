@@ -561,6 +561,8 @@ if (
                     ("S", [79.9663], "Phospho-S"),
                     ("T", [79.9663], "Phospho-T"),
                     ("Y", [79.9663], "Phospho-Y"),
+                    ("$K", [8.014199], "Acetyl-K"),
+                    ("$R", [10.008269], "Acetyl-R"),
                 ]
 
                 available_presets = [
@@ -941,8 +943,12 @@ else:
     debug_toggle_key = "osw_save_calibration_debug"
     debug_irt_mzml_key = f"{TPFX}OpenSwathWorkflow:1:Debugging:irt_mzml"
     debug_irt_trafo_key = f"{TPFX}OpenSwathWorkflow:1:Debugging:irt_trafo"
-    debug_im_key = f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_im_file"
-    debug_mz_key = f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_mz_file"
+    debug_im_key = (
+        f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_im_file"
+    )
+    debug_mz_key = (
+        f"{TPFX}OpenSwathWorkflow:1:Calibration:MassIMCorrection:debug_mz_file"
+    )
 
     saved_debug_enabled = any(
         [
@@ -1103,7 +1109,9 @@ if cfg_files:
             continue
         cmd_key = cfg_path.stem
         title = cfg.get("meta", {}).get("command", cmd_key)
-        saved_cmd_cfg_path = workspace_dir / "tools-configs" / "pyprophet" / f"{cmd_key}.json"
+        saved_cmd_cfg_path = (
+            workspace_dir / "tools-configs" / "pyprophet" / f"{cmd_key}.json"
+        )
         saved_cmd_cfg = (
             _load_json_asset(saved_cmd_cfg_path) if saved_cmd_cfg_path.exists() else {}
         )
@@ -1208,14 +1216,11 @@ if cfg_files:
                         saved_cmd_cfg.get("context", "global"),
                     )
                 )
-                st.caption(
-                    "Run this inference separately for each selected context."
-                )
+                st.caption("Run this inference separately for each selected context.")
                 ctx_cols = st.columns(len(PY_INFER_CONTEXTS))
                 for col, context in zip(ctx_cols, PY_INFER_CONTEXTS):
                     widget_key = (
-                        f"pyprophet_{infer_type}_context_"
-                        f"{context.replace('-', '_')}"
+                        f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
                     )
                     _seed_checkbox_state(widget_key, context in saved_contexts)
                     if col.checkbox(context, key=widget_key):
