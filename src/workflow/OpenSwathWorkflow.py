@@ -18,6 +18,7 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -178,16 +179,12 @@ class OpenSwathWorkflow(WorkflowManager):
                 continue
 
             value_type = opt_def.get("value_type")
-            default = opt_def.get("default")
             cli_flags = opt_def.get("cli_flags", [])
             if not cli_flags:
                 continue
 
             if value_type == "boolean":
-                bool_value = bool(value)
-                bool_default = bool(default)
-                if bool_value == bool_default:
-                    continue
+                bool_value = self._coerce_config_bool(value)
                 positive_flag = next(
                     (flag for flag in cli_flags if not flag.startswith("--no-")),
                     None,
@@ -202,23 +199,47 @@ class OpenSwathWorkflow(WorkflowManager):
                 continue
 
             if value_type == "boolean_flag":
-                if value:
+                if self._coerce_config_bool(value):
                     command.append(cli_flags[0])
                 continue
 
+            if isinstance(value_type, str) and value_type.startswith("array["):
+                array_values = self._coerce_config_array(value)
+                if not array_values:
+                    continue
+                command.append(cli_flags[0])
+                command.extend(array_values)
+                continue
+
             if isinstance(value, list):
-                if value == default or not value:
+                if not value:
                     continue
                 command.append(cli_flags[0])
                 command.extend(str(item) for item in value)
                 continue
 
-            if value == default:
-                continue
-
             command.extend([cli_flags[0], str(value)])
 
         return command
+
+    @staticmethod
+    def _coerce_config_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _coerce_config_array(value) -> list[str]:
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            return [item for item in re.split(r"[\s,]+", stripped) if item]
+        return [str(value)] if value is not None else []
 
     def _selected_pyprophet_contexts(self, config: dict) -> list[str]:
         contexts = config.get("contexts", config.get("context", ["global"]))
@@ -594,9 +615,16 @@ class OpenSwathWorkflow(WorkflowManager):
         if tsv_cfg.get("max_alignment_pep") is not None:
             tsv_cmd += ["--max_alignment_pep", str(tsv_cfg["max_alignment_pep"])]
 
-        subcommands: list[tuple[str, list[str]]] = [
-            ("score", [exe, "score", "--in", osw_in]),
-        ]
+        score_cfg = self._load_tool_config(
+            "tools-configs", "pyprophet", "pyprophet_score_config.json"
+        )
+        score_cmd = self._append_pyprophet_config_options(
+            [exe, "score", "--in", osw_in],
+            score_cfg,
+            "pyprophet_score_config.json",
+            exclude_keys={"in", "out", "help"},
+        )
+        subcommands: list[tuple[str, list[str]]] = [("score", score_cmd)]
 
         infer_peptide_cfg = self._load_tool_config(
             "tools-configs", "pyprophet", "pyprophet_infer_peptide_config.json"
