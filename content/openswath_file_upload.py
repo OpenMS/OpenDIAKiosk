@@ -99,6 +99,122 @@ def _list_imported_results() -> list[Path]:
     )
 
 
+def _path_matches_suffix(path: Path, suffixes: tuple[str, ...]) -> bool:
+    name = path.name.lower()
+    return any(name.endswith(suffix.lower()) for suffix in suffixes)
+
+
+def _list_local_files(local_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    if not local_dir.is_dir():
+        return []
+    return sorted(
+        [
+            path
+            for path in local_dir.iterdir()
+            if path.is_file() and _path_matches_suffix(path, suffixes)
+        ],
+        key=lambda item: item.name.lower(),
+    )
+
+
+def _looks_like_matrix_tsv(path: Path, level: str) -> bool:
+    name = path.name.lower()
+    return (
+        name.endswith(f".{level}.tsv")
+        or name.endswith(f"_{level}.tsv")
+        or name.endswith(f"-{level}.tsv")
+        or f".{level}." in name
+        or f"_{level}_" in name
+        or f"-{level}-" in name
+    )
+
+
+def _looks_like_any_matrix_tsv(path: Path) -> bool:
+    return any(
+        _looks_like_matrix_tsv(path, level)
+        for level in ("precursor", "peptide", "protein")
+    )
+
+
+def _looks_like_long_results_tsv(path: Path) -> bool:
+    name = path.name.lower()
+    if _looks_like_any_matrix_tsv(path):
+        return False
+    return (
+        name == "openswath_results.tsv"
+        or name == "results.tsv"
+        or name.endswith("_results.tsv")
+        or name.endswith(".results.tsv")
+        or "long" in name
+    )
+
+
+def _local_file_multiselect(
+    label: str,
+    paths: list[Path],
+    default_paths: list[Path],
+    key: str,
+    help_text: str | None = None,
+) -> list[Path]:
+    path_map = {path.name: path for path in paths}
+    selected = st.multiselect(
+        label,
+        options=list(path_map.keys()),
+        default=[path.name for path in default_paths if path.name in path_map],
+        key=key,
+        help=help_text,
+    )
+    return [path_map[name] for name in selected]
+
+
+def _copy_or_link_local_files(
+    paths: list[Path],
+    target_dir: Path,
+    label: str,
+    make_copy: bool,
+) -> int:
+    if not paths:
+        return 0
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    added = 0
+    skipped = 0
+
+    for source_path in paths:
+        target_path = target_dir / source_path.name
+        source_resolved = source_path.resolve()
+
+        if target_path.exists() or target_path.is_symlink():
+            if target_path.is_dir():
+                st.warning(f"Skipped {source_path.name}: target path is a directory.")
+                skipped += 1
+                continue
+            try:
+                if target_path.resolve() == source_resolved:
+                    added += 1
+                    continue
+            except FileNotFoundError:
+                pass
+            target_path.unlink()
+
+        if make_copy:
+            shutil.copy2(source_path, target_path)
+        else:
+            try:
+                target_path.symlink_to(source_resolved)
+            except OSError:
+                shutil.copy2(source_path, target_path)
+                st.warning(f"Could not link {source_path.name}; copied it instead.")
+        added += 1
+
+    if added:
+        action = "Copied" if make_copy else "Added"
+        st.success(f"{action} {added} {label} file(s) to the workspace.")
+    if skipped:
+        st.info(f"Skipped {skipped} {label} file(s).")
+    return added
+
+
 if mzML_dir.exists() and not any(mzML_dir.iterdir()):
     fileupload.load_example_mzML_files()
 
@@ -249,18 +365,15 @@ if st.session_state.location == "local":
                 )
                 st.session_state["previous_dir"] = st.session_state["local_dir"]
         with st_cols[1]:
-            local_mzML_dir = st.text_input(
-                "path to folder with mzML files",
+            local_files_dir = st.text_input(
+                "path to folder with files",
                 value=st.session_state["local_dir"],
             )
-        local_mzML_dir = rf"{local_mzML_dir}"
-        cols = st.columns([0.65, 0.3, 0.4, 0.25], gap="small")
-        copy_button = cols[1].button(
-            "Copy files to workspace",
-            type="primary",
-            disabled=(local_mzML_dir == ""),
-        )
-        use_copy = cols[2].checkbox(
+        local_files_dir = rf"{local_files_dir}"
+        local_dir_path = Path(local_files_dir).expanduser()
+        local_dir_is_valid = bool(local_files_dir) and local_dir_path.is_dir()
+
+        use_copy = st.checkbox(
             "Make a copy of files",
             key="local_browse-copy_files",
             value=True,
@@ -270,10 +383,183 @@ if st.session_state.location == "local":
             st.warning(
                 "**Warning**: You have deselected the `Make a copy of files` option. "
                 "This **_assumes you know what you are doing_**. "
-                "This means that the original files will be used instead. "
+                "The workspace will link to the original files when possible. "
             )
+
+        if local_files_dir and not local_dir_is_valid:
+            st.warning("Select an existing local folder.")
+
+        selected_local_groups: list[tuple[list[Path], Path, str]] = []
+        if local_dir_is_valid:
+            mzml_candidates = _list_local_files(local_dir_path, (".mzml", ".mzml.gz"))
+            fasta_candidates = _list_local_files(
+                local_dir_path,
+                (".fasta", ".fa", ".faa"),
+            )
+            tsv_candidates = _list_local_files(local_dir_path, (".tsv",))
+            lib_candidates = _list_local_files(
+                local_dir_path,
+                (".tsv", ".traml", ".pqp"),
+            )
+            osw_candidates = _list_local_files(
+                local_dir_path,
+                (".osw", ".sqlite", ".db"),
+            )
+            xic_candidates = _list_local_files(local_dir_path, (".xic", ".parquet"))
+
+            long_tsv_defaults = [
+                path for path in tsv_candidates if _looks_like_long_results_tsv(path)
+            ]
+            precursor_defaults = [
+                path
+                for path in tsv_candidates
+                if _looks_like_matrix_tsv(path, "precursor")
+            ]
+            peptide_defaults = [
+                path
+                for path in tsv_candidates
+                if _looks_like_matrix_tsv(path, "peptide")
+            ]
+            protein_defaults = [
+                path
+                for path in tsv_candidates
+                if _looks_like_matrix_tsv(path, "protein")
+            ]
+            result_like_tsv = set(
+                long_tsv_defaults
+                + precursor_defaults
+                + peptide_defaults
+                + protein_defaults
+            )
+            lib_defaults = [
+                path
+                for path in lib_candidates
+                if path.suffix.lower() in {".traml", ".pqp"} or path not in result_like_tsv
+            ]
+
+            st.markdown("##### Primary Inputs")
+            mzml_selected = _local_file_multiselect(
+                "mzML files",
+                mzml_candidates,
+                mzml_candidates,
+                key="local_mzml_selection",
+                help_text="Detected .mzML and .mzML.gz files.",
+            )
+            primary_col1, primary_col2 = st.columns(2)
+            with primary_col1:
+                fasta_selected = _local_file_multiselect(
+                    "Optional FASTA files",
+                    fasta_candidates,
+                    fasta_candidates,
+                    key="local_fasta_selection",
+                    help_text="Detected .fasta, .fa, and .faa files.",
+                )
+            with primary_col2:
+                lib_selected = _local_file_multiselect(
+                    "Optional spectral library / transition lists",
+                    lib_candidates,
+                    lib_defaults,
+                    key="local_library_selection",
+                    help_text="Detected .tsv, .traML, and .pqp files. TSVs can be ambiguous; unselect result TSVs here if needed.",
+                )
+
+            st.markdown("##### Existing OpenSwath Results")
+            result_col1, result_col2 = st.columns(2)
+            with result_col1:
+                osw_selected = _local_file_multiselect(
+                    "Optional OpenSwath OSW results",
+                    osw_candidates,
+                    osw_candidates,
+                    key="local_osw_result_selection",
+                    help_text="Detected .osw, .sqlite, and .db files.",
+                )
+            with result_col2:
+                long_tsv_selected = _local_file_multiselect(
+                    "Optional long results TSVs",
+                    tsv_candidates,
+                    long_tsv_defaults,
+                    key="local_long_tsv_selection",
+                    help_text="Detected .tsv files. Defaults favor names like openswath_results.tsv or *_results.tsv.",
+                )
+
+            matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
+            with matrix_col1:
+                precursor_selected = _local_file_multiselect(
+                    "Precursor matrix TSVs",
+                    tsv_candidates,
+                    precursor_defaults,
+                    key="local_precursor_matrix_selection",
+                )
+            with matrix_col2:
+                peptide_selected = _local_file_multiselect(
+                    "Peptide matrix TSVs",
+                    tsv_candidates,
+                    peptide_defaults,
+                    key="local_peptide_matrix_selection",
+                )
+            with matrix_col3:
+                protein_selected = _local_file_multiselect(
+                    "Protein matrix TSVs",
+                    tsv_candidates,
+                    protein_defaults,
+                    key="local_protein_matrix_selection",
+                )
+
+            xic_selected = _local_file_multiselect(
+                "Optional XIC files",
+                xic_candidates,
+                xic_candidates,
+                key="local_xic_selection",
+                help_text="Detected .xic and .parquet files for the chromatogram viewer.",
+            )
+
+            selected_local_groups = [
+                (mzml_selected, mzML_dir, "mzML"),
+                (fasta_selected, fasta_dir, "FASTA"),
+                (lib_selected, lib_dir, "library"),
+                (osw_selected, result_target_dirs["osw"], "OSW result"),
+                (long_tsv_selected, result_target_dirs["long_tsv"], "long TSV result"),
+                (
+                    precursor_selected,
+                    result_target_dirs["precursor_matrix"],
+                    "precursor matrix",
+                ),
+                (
+                    peptide_selected,
+                    result_target_dirs["peptide_matrix"],
+                    "peptide matrix",
+                ),
+                (
+                    protein_selected,
+                    result_target_dirs["protein_matrix"],
+                    "protein matrix",
+                ),
+                (xic_selected, xic_dir, "XIC"),
+            ]
+
+        cols = st.columns([0.65, 0.3, 0.4, 0.25], gap="small")
+        copy_button = cols[1].button(
+            "Add selected files to workspace",
+            type="primary",
+            disabled=not local_dir_is_valid,
+        )
         if copy_button:
-            fileupload.copy_local_mzML_files_from_directory(local_mzML_dir, use_copy)
+            total_added = 0
+            xic_added = False
+            for selected_paths, target_dir, label in selected_local_groups:
+                added = _copy_or_link_local_files(
+                    selected_paths,
+                    target_dir,
+                    label,
+                    use_copy,
+                )
+                total_added += added
+                xic_added = xic_added or (label == "XIC" and added > 0)
+
+            if xic_added:
+                _clear_xic_viewer_state()
+            if not total_added:
+                st.warning("Select files first.")
 
 
 mzml_files = [
