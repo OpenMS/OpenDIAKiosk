@@ -691,7 +691,6 @@ class StreamlitUI:
 
         self.parameter_manager.save_parameters()
 
-    @st.fragment
     def input_TOPP(
         self,
         topp_tool_name: str,
