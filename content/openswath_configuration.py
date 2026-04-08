@@ -89,6 +89,46 @@ def _copy_ini_once(asset_dir: Path, dest_name: str) -> Path | None:
     return dest
 
 
+def _ensure_osw_ini_for_workspace() -> tuple[Path | None, str | None]:
+    """
+    Ensure the OpenSwathWorkflow workspace INI matches the installed binary.
+
+    Falls back to an existing workspace copy, then to the bundled asset if the
+    binary is unavailable.
+    """
+    dest = INI_DIR / "OpenSwathWorkflow.ini"
+    state_prefix = f"{workspace_dir.resolve()}::OpenSwathWorkflow"
+    attempted_key = f"{state_prefix}::descriptor_attempted"
+    source_key = f"{state_prefix}::descriptor_source"
+
+    if not st.session_state.get(attempted_key):
+        saved_tool_params = _saved_params().get("OpenSwathWorkflow", {})
+        if pm.refresh_ini_from_binary("OpenSwathWorkflow", saved_tool_params):
+            st.session_state[source_key] = "binary"
+        elif dest.exists():
+            st.session_state[source_key] = "workspace"
+        else:
+            candidates = sorted(ASSET_OSW.glob("*.ini")) if ASSET_OSW.exists() else []
+            if candidates:
+                src = next(
+                    (p for p in candidates if "dev" in p.name.lower()),
+                    candidates[-1],
+                )
+                try:
+                    shutil.copy2(src, dest)
+                    st.session_state[source_key] = f"asset:{src.name}"
+                except Exception:
+                    st.session_state[source_key] = None
+            else:
+                st.session_state[source_key] = None
+        st.session_state[attempted_key] = True
+
+    source = st.session_state.get(source_key)
+    if dest.exists():
+        return dest, source
+    return None, source
+
+
 def _load_json_asset(path: Path) -> dict:
     """Load a JSON asset, return empty dict on failure."""
     try:
@@ -821,28 +861,26 @@ st.markdown(
     "the transition library is derived from the decoy-generation step above."
 )
 
-# Copy OpenSWATH INI into workspace if needed
-osw_inis = sorted(ASSET_OSW.glob("*.ini")) if ASSET_OSW.exists() else []
-if not osw_inis:
+osw_ini, osw_ini_source = _ensure_osw_ini_for_workspace()
+if not osw_ini:
     st.error(
-        "No OpenSwathWorkflow INI found in "
-        "`assets/common-tool-descriptors/openswathworkflow/`. "
-        "Add the release INI to enable parameter configuration."
+        "Could not create `OpenSwathWorkflow.ini` from the installed "
+        "`OpenSwathWorkflow` binary, and no fallback asset descriptor is available."
     )
 else:
-    selected_ini_name = next(
-        # (n.name for n in osw_inis if "release" in n.name.lower()), osw_inis[-1].name
-        (n.name for n in osw_inis if "dev" in n.name.lower()),
-        osw_inis[-1].name,
-    )
-    dest_osw = INI_DIR / "OpenSwathWorkflow.ini"
-    if not dest_osw.exists():
-        try:
-            shutil.copy2(ASSET_OSW / selected_ini_name, dest_osw)
-        except Exception as e:
-            st.error(f"Could not copy INI: {e}")
-
-    st.caption(f"Using descriptor: `{selected_ini_name}`")
+    if osw_ini_source == "binary":
+        st.caption(
+            "Using descriptor from installed `OpenSwathWorkflow` binary via "
+            "`OpenSwathWorkflow -write_ini`."
+        )
+    elif osw_ini_source == "workspace":
+        st.caption("Using existing workspace descriptor: `OpenSwathWorkflow.ini`")
+    elif isinstance(osw_ini_source, str) and osw_ini_source.startswith("asset:"):
+        st.caption(
+            f"Using fallback asset descriptor: `{osw_ini_source.split(':', 1)[1]}`"
+        )
+    else:
+        st.caption("Using workspace descriptor: `OpenSwathWorkflow.ini`")
 
     # -- Derived inputs --------------------------------------------------------
     col_in1, col_in2 = st.columns(2)

@@ -44,11 +44,58 @@ class ParameterManager:
         ini_path = Path(self.ini_dir, tool + ".ini")
         if ini_path.exists():
             return True
+        return self._write_ini(tool, ini_path)
+
+    def _write_ini(self, tool: str, ini_path: Path) -> bool:
+        """Write a TOPP tool INI file via `<tool> -write_ini <path>`."""
         try:
-            subprocess.call([tool, "-write_ini", str(ini_path)])
+            completed = subprocess.run(
+                [tool, "-write_ini", str(ini_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
         except FileNotFoundError:
             return False
-        return ini_path.exists()
+        return completed.returncode == 0 and ini_path.exists()
+
+    def refresh_ini_from_binary(
+        self, tool: str, saved_tool_params: dict | None = None
+    ) -> bool:
+        """
+        Refresh a workspace INI from the installed TOPP binary.
+
+        If saved non-default parameters are supplied, they are overlaid onto the
+        generated defaults before the workspace INI is replaced.
+        """
+        target_path = Path(self.ini_dir, tool + ".ini")
+        tmp_path = Path(self.ini_dir, f".{tool}.generated.ini")
+        tmp_path.unlink(missing_ok=True)
+
+        if not self._write_ini(tool, tmp_path):
+            tmp_path.unlink(missing_ok=True)
+            return False
+
+        try:
+            if saved_tool_params:
+                param = poms.Param()
+                poms.ParamXMLFile().load(str(tmp_path), param)
+                ini_keys = {
+                    k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+                    for k in param.keys()
+                }
+                for short_key, value in saved_tool_params.items():
+                    ini_key = f"{tool}:1:{short_key}"
+                    if ini_key not in ini_keys:
+                        continue
+                    ini_value = param.getValue(ini_key)
+                    param.setValue(ini_key, self._coerce_topp_value(ini_value, value))
+                poms.ParamXMLFile().store(str(tmp_path), param)
+
+            tmp_path.replace(target_path)
+            return True
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def _coerce_topp_value(self, ini_value, value):
         """
