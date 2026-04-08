@@ -1062,12 +1062,25 @@ else:
 
     # -- INI-driven parameter widgets ------------------------------------------
     st.markdown("**OpenSwathWorkflow Parameters**")
+    osw_param_view_key = "osw_param_view_mode"
+    osw_param_view_options = ["Grouped", "Focused"]
+    _seed_choice_state(osw_param_view_key, osw_param_view_options, "Grouped")
+    osw_param_view_mode = st.radio(
+        "Parameter view",
+        options=osw_param_view_options,
+        key=osw_param_view_key,
+        horizontal=True,
+        help=(
+            "Grouped shows all top-level parameter sections with General open by default. "
+            "Focused renders one top-level section at a time and is lighter on memory."
+        ),
+    )
     ui.input_TOPP(
         "OpenSwathWorkflow",
         num_cols=3,
         display_tool_name=False,
         display_subsections=True,
-        lazy_top_level_sections=True,
+        lazy_top_level_sections=(osw_param_view_mode == "Focused"),
         lazy_top_level_label="OpenSwathWorkflow parameter group",
         exclude_parameters=[
             "in",
