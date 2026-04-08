@@ -702,6 +702,8 @@ class StreamlitUI:
         display_subsection_tabs: bool = False,
         custom_defaults: dict = {},
         autosave: bool = True,
+        lazy_top_level_sections: bool = False,
+        lazy_top_level_label: str = "Parameter group",
     ) -> None:
         """
         Generates input widgets for TOPP tool parameters dynamically based on the tool's
@@ -1211,7 +1213,26 @@ class StreamlitUI:
         remaining = [t for t in sorted(top_groups.keys()) if t not in desired_order]
         ordered_tops = [t for t in desired_order if t in top_groups] + remaining
 
-        for top in ordered_tops:
+        visible_tops = ordered_tops
+        if lazy_top_level_sections and len(ordered_tops) > 1:
+            selector_key = (
+                f"{self.parameter_manager.topp_param_prefix}"
+                f"{topp_tool_name}__top_group"
+            )
+            current_top = st.session_state.get(selector_key)
+            if current_top not in ordered_tops:
+                current_top = ordered_tops[0]
+                st.session_state[selector_key] = current_top
+            selected_top = st.selectbox(
+                lazy_top_level_label,
+                options=ordered_tops,
+                index=ordered_tops.index(current_top),
+                key=selector_key,
+                help="Render one top-level OpenMS parameter group at a time.",
+            )
+            visible_tops = [selected_top]
+
+        for top in visible_tops:
             # Top-level expander
             with st.expander(top, expanded=(top == "General")):
                 subsections = top_groups[top]

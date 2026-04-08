@@ -183,7 +183,6 @@ def copy_demo_workspace(demo_name: str, target_path: Path) -> bool:
         return False
 
 
-@st.fragment(run_every=5)
 def monitor_hardware():
     cpu_progress = psutil.cpu_percent(interval=None) / 100
     ram_progress = 1 - psutil.virtual_memory().available / psutil.virtual_memory().total
@@ -197,7 +196,6 @@ def monitor_hardware():
     st.caption(f"Last fetched at: {time.strftime('%H:%M:%S')}")
 
 
-@st.fragment(run_every=5)
 def monitor_queue():
     """Display queue metrics in sidebar (online mode only)"""
     try:
