@@ -259,16 +259,23 @@ def load_params(default: bool = False) -> dict[str, Any]:
     if not st.session_state.settings["enable_workspaces"]:
         default = True
 
+    with open("default-parameters.json", "r", encoding="utf-8") as f:
+        params = json.load(f)
+
     # Construct the path to the parameter file
     path = Path(st.session_state.workspace, "params.json")
 
-    # Load the parameters from the file, or from the default file if the parameter file does not exist
+    # Merge workspace parameters onto defaults so older workspaces keep working
+    # when new UI preferences or parameters are added over time.
     if path.exists() and not default:
-        with open(path, "r", encoding="utf-8") as f:
-            params = json.load(f)
-    else:
-        with open("default-parameters.json", "r", encoding="utf-8") as f:
-            params = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                workspace_params = json.load(f)
+        except Exception:
+            workspace_params = {}
+
+        if isinstance(workspace_params, dict):
+            params.update(workspace_params)
 
     # Return the parameter dictionary
     return params
@@ -768,10 +775,14 @@ def render_sidebar(page: str = "") -> None:
         # All pages have settings, workflow indicator and logo
         with st.expander("⚙️ **Settings**"):
             img_formats = ["svg", "png", "jpeg", "webp"]
+            selected_image_format = params.get("image-format", img_formats[0])
+            if selected_image_format not in img_formats:
+                selected_image_format = img_formats[0]
+                params["image-format"] = selected_image_format
             st.selectbox(
                 "image export format",
                 img_formats,
-                img_formats.index(params["image-format"]),
+                img_formats.index(selected_image_format),
                 key="image-format",
             )
             st.markdown("## Spectrum Plotting")
