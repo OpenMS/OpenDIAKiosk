@@ -12,6 +12,7 @@ import time
 from io import BytesIO
 import zipfile
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 
 from src.common.common import (
@@ -1012,6 +1013,19 @@ class StreamlitUI:
                     st.session_state[key] = ""
                     st.rerun()
 
+        def _float_step(value: Any) -> float:
+            try:
+                value_decimal = Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError):
+                return 0.01
+            if not value_decimal.is_finite():
+                return 0.01
+
+            exponent = value_decimal.as_tuple().exponent
+            decimal_places = max(2, -exponent if exponent < 0 else 0)
+            decimal_places = min(decimal_places, 9)
+            return 10.0 ** -decimal_places
+
         def display_TOPP_params(params: dict, num_cols):
             """Displays individual TOPP parameters in given number of columns"""
             cols = st.columns(num_cols)
@@ -1128,7 +1142,7 @@ class StreamlitUI:
                         cols[i].number_input(
                             name,
                             value=float(p["value"]),
-                            step=1.0,
+                            step=_float_step(p["value"]),
                             help=p["description"],
                             key=key,
                         )
