@@ -535,9 +535,9 @@
           ],
           "value_type": "integer",
           "required": false,
-          "default": 1,
+          "default": 5,
           "description": "Number of threads used for semi-supervised learning. Use -1 for all available CPUs.",
-          "value": 1,
+          "value": 5,
           "is_set": false
         },
         "test": {
