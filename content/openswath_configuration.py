@@ -1080,6 +1080,7 @@ else:
         num_cols=3,
         display_tool_name=False,
         display_subsections=True,
+        lazy_grouped_top_level_sections=(osw_param_view_mode == "Grouped"),
         lazy_top_level_sections=(osw_param_view_mode == "Focused"),
         lazy_top_level_label="OpenSwathWorkflow parameter group",
         exclude_parameters=[

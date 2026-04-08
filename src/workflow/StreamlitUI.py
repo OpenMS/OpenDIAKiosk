@@ -702,6 +702,7 @@ class StreamlitUI:
         display_subsection_tabs: bool = False,
         custom_defaults: dict = {},
         autosave: bool = True,
+        lazy_grouped_top_level_sections: bool = False,
         lazy_top_level_sections: bool = False,
         lazy_top_level_label: str = "Parameter group",
     ) -> None:
@@ -1213,6 +1214,20 @@ class StreamlitUI:
         remaining = [t for t in sorted(top_groups.keys()) if t not in desired_order]
         ordered_tops = [t for t in desired_order if t in top_groups] + remaining
 
+        def render_top_group(top: str) -> None:
+            subsections = top_groups[top]
+            for subsection, params in subsections.items():
+                # For sections where subsection name equals top, show params directly
+                if subsection == top or subsection == "all":
+                    if subsection in section_descriptions:
+                        st.caption(section_descriptions[subsection])
+                    display_TOPP_params(params, num_cols)
+                else:
+                    with st.expander(subsection.split(":", 1)[-1], expanded=False):
+                        if subsection in section_descriptions:
+                            st.caption(section_descriptions[subsection])
+                        display_TOPP_params(params, num_cols)
+
         visible_tops = ordered_tops
         if lazy_top_level_sections and len(ordered_tops) > 1:
             selector_key = (
@@ -1231,24 +1246,35 @@ class StreamlitUI:
                 help="Render one top-level OpenMS parameter group at a time.",
             )
             visible_tops = [selected_top]
+        elif lazy_grouped_top_level_sections and len(ordered_tops) > 1:
+            for top in ordered_tops:
+                open_key = (
+                    f"{self.parameter_manager.topp_param_prefix}"
+                    f"{topp_tool_name}__top_group_open__{top}"
+                )
+                toggle_key = f"{open_key}__toggle"
+                is_open = st.session_state.get(open_key, top == "General")
+                with st.container(border=True):
+                    if st.button(
+                        f"{'▼' if is_open else '▶'} {top}",
+                        key=toggle_key,
+                        use_container_width=True,
+                    ):
+                        is_open = not is_open
+                        st.session_state[open_key] = is_open
+                    else:
+                        st.session_state.setdefault(open_key, is_open)
+
+                    if is_open:
+                        render_top_group(top)
+
+            if autosave:
+                self.parameter_manager.save_parameters()
+            return
 
         for top in visible_tops:
-            # Top-level expander
             with st.expander(top, expanded=(top == "General")):
-                subsections = top_groups[top]
-                for subsection, params in subsections.items():
-                    # For sections where subsection name equals top, show params directly
-                    if subsection == top or subsection == "all":
-                        # show description if present
-                        if subsection in section_descriptions:
-                            st.caption(section_descriptions[subsection])
-                        display_TOPP_params(params, num_cols)
-                    else:
-                        # nested expander for deeper subsection
-                        with st.expander(subsection.split(":", 1)[-1], expanded=False):
-                            if subsection in section_descriptions:
-                                st.caption(section_descriptions[subsection])
-                            display_TOPP_params(params, num_cols)
+                render_top_group(top)
 
         if autosave:
             self.parameter_manager.save_parameters()

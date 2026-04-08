@@ -108,12 +108,20 @@ class ParameterManager:
         # Advanced parameters are only in session state if the view is active
         json_params = existing_params | general_params
 
+        topp_state_items: dict[str, list[tuple[str, object]]] = {}
+        for key, value in st.session_state.items():
+            if not key.startswith(self.topp_param_prefix):
+                continue
+            # Skip display-only helper widgets used by the UI
+            if key.endswith("_display"):
+                continue
+
+            tool_and_key = key.replace(self.topp_param_prefix, "", 1)
+            tool = tool_and_key.split(":1:", 1)[0]
+            topp_state_items.setdefault(tool, []).append((key, value))
+
         # get a list of TOPP tools which are in session state
-        current_topp_tools = {
-            k.replace(self.topp_param_prefix, "").split(":1:")[0]
-            for k in st.session_state.keys()
-            if k.startswith(f"{self.topp_param_prefix}")
-        }
+        current_topp_tools = set(topp_state_items.keys())
         current_topp_tools.update(
             tool
             for tool, value in existing_params.items()
@@ -122,6 +130,17 @@ class ParameterManager:
 
         # for each TOPP tool, open the ini file
         for tool in current_topp_tools:
+            existing_tool_params = existing_params.get(tool, {})
+            json_params[tool] = (
+                existing_tool_params.copy()
+                if isinstance(existing_tool_params, dict)
+                else {}
+            )
+
+            tool_state_items = topp_state_items.get(tool, [])
+            if not tool_state_items:
+                continue
+
             if not self.create_ini(tool):
                 # Could not create ini file - skip this tool
                 continue
@@ -130,46 +149,43 @@ class ParameterManager:
             param = poms.Param()
             poms.ParamXMLFile().load(str(ini_path), param)
             ini_keys = {str(k) for k in param.keys()}
-
-            # Keep only current-session deltas in params.json. The full persisted
-            # TOPP state is mirrored into the workspace INI file below.
-            json_params[tool] = {}
+            tool_changed = False
 
             # get all session state param keys and values for this tool
-            for key, value in st.session_state.items():
-                if key.startswith(f"{self.topp_param_prefix}{tool}:1:"):
-                    # Skip display keys used by multiselect widgets
-                    if key.endswith("_display"):
-                        continue
-                    # get ini_key
-                    ini_key = key.replace(self.topp_param_prefix, "")
-                    # Skip keys that don't correspond to actual ini entries
-                    # (e.g., widget-specific keys like uploaders or display helpers)
-                    if ini_key not in ini_keys:
-                        continue
-                    # get ini (default) value by ini_key
-                    ini_value = param.getValue(ini_key)
-                    coerced_value = self._coerce_topp_value(ini_value, value)
-                    short_key = key.split(":1:")[1]
+            for key, value in tool_state_items:
+                # get ini_key
+                ini_key = key.replace(self.topp_param_prefix, "")
+                # Skip keys that don't correspond to actual ini entries
+                # (e.g., widget-specific keys like uploaders or display helpers)
+                if ini_key not in ini_keys:
+                    continue
+                # get ini (default) value by ini_key
+                ini_value = param.getValue(ini_key)
+                coerced_value = self._coerce_topp_value(ini_value, value)
+                short_key = key.split(":1:")[1]
 
-                    # Keep the workspace INI aligned with the current UI state.
+                # Keep the workspace INI aligned with the current UI state,
+                # but avoid rewriting unchanged parameters.
+                if ini_value != coerced_value:
                     param.setValue(ini_key, coerced_value)
+                    tool_changed = True
 
-                    # check if value is different from default OR is an empty list parameter
-                    if (
-                        (ini_value != coerced_value)
-                        or (short_key in existing_params.get(tool, {}))
-                        or (isinstance(ini_value, list) and not coerced_value)
-                    ):
-                        # store non-default value
-                        json_params[tool][short_key] = coerced_value
+                # keep non-default value in params.json, otherwise remove stale entry
+                if (ini_value != coerced_value) or (
+                    isinstance(ini_value, list) and not coerced_value
+                ):
+                    json_params[tool][short_key] = coerced_value
+                else:
+                    json_params[tool].pop(short_key, None)
 
-            # Persist the current TOPP state in the workspace INI file so the UI
-            # rehydrates from the same source on the next page load.
-            poms.ParamXMLFile().store(str(ini_path), param)
-        # Save to json file
-        with open(self.params_file, "w", encoding="utf-8") as f:
-            json.dump(json_params, f, indent=4)
+            # Persist the current TOPP state in the workspace INI file only when needed.
+            if tool_changed:
+                poms.ParamXMLFile().store(str(ini_path), param)
+
+        # Save to json file only if parameters changed
+        if json_params != existing_params:
+            with open(self.params_file, "w", encoding="utf-8") as f:
+                json.dump(json_params, f, indent=4)
 
     def get_parameters_from_json(self) -> dict:
         """
