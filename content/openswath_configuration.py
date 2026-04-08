@@ -611,6 +611,7 @@ if (
                 key_prefix="easypqp",
                 custom_renderers=custom,
                 default_open_sections=[],
+                autosave=False,
             )
 
             # Display derived, uneditable output filename and set parameter
@@ -722,6 +723,7 @@ with st.expander(
             display_tool_name=False,
             display_subsections=True,
             exclude_parameters=["in", "out", "in_type", "out_type"],
+            autosave=False,
         )
 
 # --- OpenSwathDecoyGenerator (top-level under Spectral Library Parameters)
@@ -788,6 +790,7 @@ with st.expander("⚙️ OpenSwathDecoyGenerator Parameters", expanded=True):
             display_tool_name=False,
             display_subsections=True,
             exclude_parameters=["in", "out", "in_type", "out_type"],
+            autosave=False,
         )
 
 # -----------------------------------------------------------------------------
@@ -1080,6 +1083,7 @@ else:
             "out_features_type",
             "out_qc",
         ],
+        autosave=False,
     )
 
 # -----------------------------------------------------------------------------
@@ -1180,6 +1184,7 @@ if cfg_files:
                 cfg_to_render,
                 key_prefix=f"pyprophet:{cmd_key}",
                 default_open_sections=["io"],
+                autosave=False,
             )
 
             # Display and set derived IO parameters as uneditable values
@@ -1430,6 +1435,9 @@ with st.expander("⚙️ pyprophet export matrix", expanded=False):
 
 # -----------------------------------------------------------------------------
 # SAVE button
+
+# Persist generated widget state once per rerun instead of after every section.
+pm.save_parameters()
 
 st.markdown("---")
 save_col, _ = st.columns([1, 3])

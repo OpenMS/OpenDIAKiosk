@@ -702,6 +702,7 @@ class StreamlitUI:
         display_subsections: bool = True,
         display_subsection_tabs: bool = False,
         custom_defaults: dict = {},
+        autosave: bool = True,
     ) -> None:
         """
         Generates input widgets for TOPP tool parameters dynamically based on the tool's
@@ -1229,7 +1230,8 @@ class StreamlitUI:
                                 st.caption(section_descriptions[subsection])
                             display_TOPP_params(params, num_cols)
 
-        self.parameter_manager.save_parameters()
+        if autosave:
+            self.parameter_manager.save_parameters()
 
     @st.fragment
     def input_python(
@@ -1329,6 +1331,7 @@ class StreamlitUI:
         key_prefix: str = "config",
         custom_renderers: dict = None,
         default_open_sections: list = None,
+        autosave: bool = True,
     ) -> None:
         """
         Render a structured JSON config schema into Streamlit widgets.
@@ -1594,7 +1597,8 @@ class StreamlitUI:
                         )
 
         # persist parameters
-        self.parameter_manager.save_parameters()
+        if autosave:
+            self.parameter_manager.save_parameters()
 
     def zip_and_download_files(self, directory: str):
         """

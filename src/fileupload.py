@@ -6,7 +6,6 @@ import streamlit as st
 from src.common.common import reset_directory, OS_PLATFORM
 
 
-@st.cache_data
 def save_uploaded_mzML(uploaded_files: list[bytes]) -> None:
     """
     Saves uploaded mzML files to the mzML directory.
@@ -25,15 +24,16 @@ def save_uploaded_mzML(uploaded_files: list[bytes]) -> None:
     if not uploaded_files:
         st.warning("Upload some files first.")
         return
+    existing_names = {p.name for p in mzML_dir.iterdir() if p.is_file()}
     # Write files from buffer to workspace mzML directory, add to selected files
     for f in uploaded_files:
-        existing_names = [p.name for p in mzML_dir.iterdir() if p.is_file()]
         # allow uncompressed mzML and gz-compressed mzML
         if f.name not in existing_names and f.name.lower().endswith(
             (".mzml", ".mzml.gz")
         ):
             with open(Path(mzML_dir, f.name), "wb") as fh:
                 fh.write(f.getbuffer())
+            existing_names.add(f.name)
     st.success("Successfully added uploaded files!")
 
 
