@@ -25,6 +25,8 @@ class ParameterManager:
     def __init__(self, workflow_dir: Path, workflow_name: str = None):
         self.ini_dir = Path(workflow_dir, "ini")
         self.ini_dir.mkdir(parents=True, exist_ok=True)
+        self.defaults_ini_dir = self.ini_dir / ".defaults"
+        self.defaults_ini_dir.mkdir(parents=True, exist_ok=True)
         self.params_file = Path(workflow_dir, "params.json")
         self.param_prefix = f"{workflow_dir.stem}-param-"
         self.topp_param_prefix = f"{workflow_dir.stem}-TOPP-"
@@ -49,6 +51,7 @@ class ParameterManager:
     def _write_ini(self, tool: str, ini_path: Path) -> bool:
         """Write a TOPP tool INI file via `<tool> -write_ini <path>`."""
         try:
+            ini_path.parent.mkdir(parents=True, exist_ok=True)
             completed = subprocess.run(
                 [tool, "-write_ini", str(ini_path)],
                 stdout=subprocess.DEVNULL,
@@ -77,6 +80,10 @@ class ParameterManager:
             return False
 
         try:
+            default_path = self.defaults_ini_dir / f"{tool}.ini"
+            default_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(tmp_path, default_path)
+
             if saved_tool_params:
                 param = poms.Param()
                 poms.ParamXMLFile().load(str(tmp_path), param)
@@ -96,6 +103,21 @@ class ParameterManager:
             return True
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    def ensure_default_ini(self, tool: str) -> Path | None:
+        """
+        Ensure a stable default descriptor exists for a TOPP tool.
+
+        This should represent the tool defaults, not the current workspace state.
+        """
+        default_path = self.defaults_ini_dir / f"{tool}.ini"
+        if default_path.exists():
+            return default_path
+
+        if self._write_ini(tool, default_path):
+            return default_path
+
+        return None
 
     def _coerce_topp_value(self, ini_value, value):
         """
@@ -198,6 +220,15 @@ class ParameterManager:
             ini_keys = {str(k) for k in param.keys()}
             tool_changed = False
 
+            default_param = poms.Param()
+            default_ini_path = self.ensure_default_ini(tool)
+            if default_ini_path and default_ini_path.exists():
+                poms.ParamXMLFile().load(str(default_ini_path), default_param)
+                default_ini_keys = {str(k) for k in default_param.keys()}
+            else:
+                default_param = param
+                default_ini_keys = ini_keys
+
             # get all session state param keys and values for this tool
             for key, value in tool_state_items:
                 # get ini_key
@@ -208,6 +239,10 @@ class ParameterManager:
                     continue
                 # get ini (default) value by ini_key
                 ini_value = param.getValue(ini_key)
+                if ini_key in default_ini_keys:
+                    default_value = default_param.getValue(ini_key)
+                else:
+                    default_value = ini_value
                 coerced_value = self._coerce_topp_value(ini_value, value)
                 short_key = key.split(":1:")[1]
 
@@ -218,8 +253,8 @@ class ParameterManager:
                     tool_changed = True
 
                 # keep non-default value in params.json, otherwise remove stale entry
-                if (ini_value != coerced_value) or (
-                    isinstance(ini_value, list) and not coerced_value
+                if (default_value != coerced_value) or (
+                    isinstance(default_value, list) and not coerced_value
                 ):
                     json_params[tool][short_key] = coerced_value
                 else:
