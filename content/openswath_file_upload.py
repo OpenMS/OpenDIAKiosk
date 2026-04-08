@@ -22,6 +22,7 @@ mzML_dir = workspace_dir / "mzML-files"
 fasta_dir = workspace_dir / "input-files" / "fasta"
 lib_dir = workspace_dir / "input-files" / "libraries"
 xic_dir = workspace_dir / "xic-files"
+workflow_results_dir = workspace_dir / "openswath-workflow" / "results"
 
 imported_results_root = workspace_dir / "openswath-workflow" / "results" / "imported"
 result_target_dirs = {
@@ -31,11 +32,15 @@ result_target_dirs = {
     "peptide_matrix": imported_results_root / "tsv" / "peptide",
     "protein_matrix": imported_results_root / "tsv" / "protein",
 }
+generated_transition_targets = {
+    "osag": workflow_results_dir / "osag" / "openswathassay_targets.tsv",
+    "osdg": workflow_results_dir / "osdg" / "openswath_targets_and_decoys.pqp",
+}
 
 
 def _workspace_rel(path: Path) -> str:
     try:
-        return str(path.resolve().relative_to(workspace_dir.resolve()))
+        return str(path.absolute().relative_to(workspace_dir.resolve()))
     except ValueError:
         return str(path)
 
@@ -48,11 +53,26 @@ def _save_uploaded_file(uploaded_file, target_dir: Path) -> Path:
     return target_path
 
 
+def _save_uploaded_file_to_path(uploaded_file, target_path: Path) -> Path:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(target_path, "wb") as fh:
+        fh.write(uploaded_file.getbuffer())
+    return target_path
+
+
 def _save_optional_upload(uploaded_file, target_dir: Path, label: str) -> bool:
     if uploaded_file is None:
         return False
     target_path = _save_uploaded_file(uploaded_file, target_dir)
     st.success(f"Saved {label}: {target_path.name}")
+    return True
+
+
+def _save_optional_upload_to_path(uploaded_file, target_path: Path, label: str) -> bool:
+    if uploaded_file is None:
+        return False
+    saved_path = _save_uploaded_file_to_path(uploaded_file, target_path)
+    st.success(f"Saved {label}: {_workspace_rel(saved_path)}")
     return True
 
 
@@ -149,6 +169,13 @@ def _looks_like_long_results_tsv(path: Path) -> bool:
     )
 
 
+def _looks_like_generated_transition(path: Path) -> bool:
+    return path.name.lower() in {
+        "openswathassay_targets.tsv",
+        "openswath_targets_and_decoys.pqp",
+    }
+
+
 def _local_file_multiselect(
     label: str,
     paths: list[Path],
@@ -165,6 +192,34 @@ def _local_file_multiselect(
         help=help_text,
     )
     return [path_map[name] for name in selected]
+
+
+def _local_file_select(
+    label: str,
+    paths: list[Path],
+    default_path: Path | None,
+    key: str,
+    help_text: str | None = None,
+) -> Path | None:
+    path_map = {path.name: path for path in paths}
+    options = [""] + list(path_map.keys())
+    default_index = 0
+    if default_path is not None and default_path.name in path_map:
+        default_index = options.index(default_path.name)
+    selected = st.selectbox(
+        label,
+        options=options,
+        index=default_index,
+        key=key,
+        help=help_text,
+        format_func=lambda name: "None" if name == "" else name,
+    )
+    return path_map[selected] if selected else None
+
+
+def _first_local_file_named(paths: list[Path], name: str) -> Path | None:
+    name_lower = name.lower()
+    return next((path for path in paths if path.name.lower() == name_lower), None)
 
 
 def _copy_or_link_local_files(
@@ -215,6 +270,43 @@ def _copy_or_link_local_files(
     return added
 
 
+def _copy_or_link_local_file_to_path(
+    source_path: Path | None,
+    target_path: Path,
+    label: str,
+    make_copy: bool,
+) -> int:
+    if source_path is None:
+        return 0
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    source_resolved = source_path.resolve()
+
+    if target_path.exists() or target_path.is_symlink():
+        if target_path.is_dir():
+            st.warning(f"Skipped {source_path.name}: target path is a directory.")
+            return 0
+        try:
+            if target_path.resolve() == source_resolved:
+                st.success(f"Added {label}: {_workspace_rel(target_path)}")
+                return 1
+        except FileNotFoundError:
+            pass
+        target_path.unlink()
+
+    if make_copy:
+        shutil.copy2(source_path, target_path)
+    else:
+        try:
+            target_path.symlink_to(source_resolved)
+        except OSError:
+            shutil.copy2(source_path, target_path)
+            st.warning(f"Could not link {source_path.name}; copied it instead.")
+
+    st.success(f"Added {label}: {_workspace_rel(target_path)}")
+    return 1
+
+
 if mzML_dir.exists() and not any(mzML_dir.iterdir()):
     fileupload.load_example_mzML_files()
 
@@ -250,6 +342,31 @@ with tabs[0]:
             help="Upload an optional transition list or spectral library (TSV/TraML/PQP).",
             key="lib_upload",
         )
+
+        st.markdown("##### Existing Generated Transition Lists")
+        generated_col1, generated_col2 = st.columns(2)
+        with generated_col1:
+            osag_generated_file = st.file_uploader(
+                "OpenSwathAssayGenerator output",
+                type=["tsv"],
+                accept_multiple_files=False,
+                help=(
+                    "Upload an existing assay target list. It will be stored as "
+                    "openswath-workflow/results/osag/openswathassay_targets.tsv."
+                ),
+                key="osag_generated_upload",
+            )
+        with generated_col2:
+            osdg_generated_file = st.file_uploader(
+                "OpenSwathDecoyGenerator output",
+                type=["pqp"],
+                accept_multiple_files=False,
+                help=(
+                    "Upload an existing target+decoy PQP. It will be stored as "
+                    "openswath-workflow/results/osdg/openswath_targets_and_decoys.pqp."
+                ),
+                key="osdg_generated_upload",
+            )
 
         st.markdown("##### Existing OpenSwath Results")
         osw_result_file = st.file_uploader(
@@ -312,6 +429,17 @@ with tabs[0]:
                 lib_path = _save_uploaded_file(lib_file, lib_dir)
                 st.success(f"Saved library to workspace: {lib_path.name}")
                 any_saved = True
+
+            any_saved = _save_optional_upload_to_path(
+                osag_generated_file,
+                generated_transition_targets["osag"],
+                "OpenSwathAssayGenerator output",
+            ) or any_saved
+            any_saved = _save_optional_upload_to_path(
+                osdg_generated_file,
+                generated_transition_targets["osdg"],
+                "OpenSwathDecoyGenerator output",
+            ) or any_saved
 
             any_saved = _save_optional_upload(
                 osw_result_file,
@@ -390,6 +518,7 @@ if st.session_state.location == "local":
             st.warning("Select an existing local folder.")
 
         selected_local_groups: list[tuple[list[Path], Path, str]] = []
+        selected_local_fixed_targets: list[tuple[Path | None, Path, str]] = []
         if local_dir_is_valid:
             mzml_candidates = _list_local_files(local_dir_path, (".mzml", ".mzml.gz"))
             fasta_candidates = _list_local_files(
@@ -405,11 +534,20 @@ if st.session_state.location == "local":
                 local_dir_path,
                 (".osw", ".sqlite", ".db"),
             )
+            pqp_candidates = _list_local_files(local_dir_path, (".pqp",))
             xic_candidates = _list_local_files(local_dir_path, (".xic", ".parquet"))
 
             long_tsv_defaults = [
                 path for path in tsv_candidates if _looks_like_long_results_tsv(path)
             ]
+            osag_generated_default = _first_local_file_named(
+                tsv_candidates,
+                generated_transition_targets["osag"].name,
+            )
+            osdg_generated_default = _first_local_file_named(
+                pqp_candidates,
+                generated_transition_targets["osdg"].name,
+            )
             precursor_defaults = [
                 path
                 for path in tsv_candidates
@@ -434,7 +572,11 @@ if st.session_state.location == "local":
             lib_defaults = [
                 path
                 for path in lib_candidates
-                if path.suffix.lower() in {".traml", ".pqp"} or path not in result_like_tsv
+                if (
+                    path.suffix.lower() in {".traml", ".pqp"}
+                    or path not in result_like_tsv
+                )
+                and not _looks_like_generated_transition(path)
             ]
 
             st.markdown("##### Primary Inputs")
@@ -461,6 +603,31 @@ if st.session_state.location == "local":
                     lib_defaults,
                     key="local_library_selection",
                     help_text="Detected .tsv, .traML, and .pqp files. TSVs can be ambiguous; unselect result TSVs here if needed.",
+                )
+
+            st.markdown("##### Existing Generated Transition Lists")
+            generated_col1, generated_col2 = st.columns(2)
+            with generated_col1:
+                osag_generated_selected = _local_file_select(
+                    "OpenSwathAssayGenerator output",
+                    tsv_candidates,
+                    osag_generated_default,
+                    key="local_osag_generated_selection",
+                    help_text=(
+                        "Select an existing assay target TSV. It will be stored as "
+                        "openswath-workflow/results/osag/openswathassay_targets.tsv."
+                    ),
+                )
+            with generated_col2:
+                osdg_generated_selected = _local_file_select(
+                    "OpenSwathDecoyGenerator output",
+                    pqp_candidates,
+                    osdg_generated_default,
+                    key="local_osdg_generated_selection",
+                    help_text=(
+                        "Select an existing target+decoy PQP. It will be stored as "
+                        "openswath-workflow/results/osdg/openswath_targets_and_decoys.pqp."
+                    ),
                 )
 
             st.markdown("##### Existing OpenSwath Results")
@@ -536,6 +703,18 @@ if st.session_state.location == "local":
                 ),
                 (xic_selected, xic_dir, "XIC"),
             ]
+            selected_local_fixed_targets = [
+                (
+                    osag_generated_selected,
+                    generated_transition_targets["osag"],
+                    "OpenSwathAssayGenerator output",
+                ),
+                (
+                    osdg_generated_selected,
+                    generated_transition_targets["osdg"],
+                    "OpenSwathDecoyGenerator output",
+                ),
+            ]
 
         cols = st.columns([0.65, 0.3, 0.4, 0.25], gap="small")
         copy_button = cols[1].button(
@@ -556,6 +735,14 @@ if st.session_state.location == "local":
                 total_added += added
                 xic_added = xic_added or (label == "XIC" and added > 0)
 
+            for source_path, target_path, label in selected_local_fixed_targets:
+                total_added += _copy_or_link_local_file_to_path(
+                    source_path,
+                    target_path,
+                    label,
+                    use_copy,
+                )
+
             if xic_added:
                 _clear_xic_viewer_state()
             if not total_added:
@@ -574,6 +761,13 @@ mzml_display = mzml_files + external_list
 
 fasta_list = [p.name for p in _list_workspace_files(fasta_dir)]
 lib_list = [p.name for p in _list_workspace_files(lib_dir)]
+generated_transition_outputs = [
+    ("OpenSwathAssayGenerator", generated_transition_targets["osag"]),
+    ("OpenSwathDecoyGenerator", generated_transition_targets["osdg"]),
+]
+generated_transition_outputs = [
+    (label, path) for label, path in generated_transition_outputs if path.exists()
+]
 imported_results = _list_imported_results()
 xic_list = _list_workspace_files(xic_dir)
 
@@ -582,6 +776,7 @@ has_workspace_files = any(
         mzml_display,
         fasta_list,
         lib_list,
+        generated_transition_outputs,
         imported_results,
         xic_list,
     ]
@@ -675,6 +870,41 @@ if has_workspace_files:
     result_col, xic_col = st.columns([3, 2])
 
     with result_col:
+        st.markdown(
+            f"##### Generated Transition Lists ({len(generated_transition_outputs)})"
+        )
+        if generated_transition_outputs:
+            generated_df = pd.DataFrame(
+                {
+                    "step": [label for label, _ in generated_transition_outputs],
+                    "file name": [path.name for _, path in generated_transition_outputs],
+                    "workspace path": [
+                        _workspace_rel(path) for _, path in generated_transition_outputs
+                    ],
+                }
+            )
+            show_table(generated_df)
+            generated_path_map = {
+                _workspace_rel(path): path for _, path in generated_transition_outputs
+            }
+            to_remove_generated = st.multiselect(
+                "Select generated transition lists to remove",
+                options=list(generated_path_map.keys()),
+            )
+            if st.button(
+                "Remove selected generated transition lists",
+                disabled=not any(to_remove_generated),
+            ):
+                for label in to_remove_generated:
+                    try:
+                        generated_path_map[label].unlink()
+                    except Exception:
+                        st.warning(f"Could not remove {label}")
+                st.success("Selected generated transition lists removed")
+                st.rerun()
+        else:
+            st.info("No generated transition list intermediates in workspace")
+
         st.markdown(f"##### Imported OpenSwath Results ({len(imported_results)})")
         if imported_results:
             imported_df = pd.DataFrame(
