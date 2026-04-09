@@ -19,6 +19,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pyopenms as poms
 import streamlit as st
 
 from src.common.common import page_setup, save_params
@@ -127,6 +128,47 @@ def _ensure_osw_ini_for_workspace() -> tuple[Path | None, str | None]:
     if dest.exists():
         return dest, source
     return None, source
+
+
+def _sync_osw_ini_from_saved_params() -> bool:
+    """
+    Rebuild the workspace OpenSwathWorkflow INI from the installed binary and the
+    currently saved params.json values, then mirror it into openswath-workflow/ini/.
+    """
+    saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
+    dest = INI_DIR / "OpenSwathWorkflow.ini"
+
+    synced = pm.refresh_ini_from_binary("OpenSwathWorkflow", saved_tool_params)
+    if not synced and dest.exists():
+        try:
+            param = poms.Param()
+            poms.ParamXMLFile().load(str(dest), param)
+            ini_keys = {
+                k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+                for k in param.keys()
+            }
+            for short_key, value in saved_tool_params.items():
+                ini_key = f"OpenSwathWorkflow:1:{short_key}"
+                if ini_key not in ini_keys:
+                    continue
+                ini_value = param.getValue(ini_key)
+                param.setValue(ini_key, pm._coerce_topp_value(ini_value, value))
+            poms.ParamXMLFile().store(str(dest), param)
+            synced = True
+        except Exception:
+            synced = False
+
+    if not synced or not dest.exists():
+        return False
+
+    try:
+        workflow_ini_dir = workspace_dir / "openswath-workflow" / "ini"
+        workflow_ini_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dest, workflow_ini_dir / "OpenSwathWorkflow.ini")
+    except Exception:
+        pass
+
+    return True
 
 
 def _load_json_asset(path: Path) -> dict:
@@ -1525,6 +1567,10 @@ save_col, _ = st.columns([1, 3])
 with save_col:
     if st.button("💾 Save all parameters to workspace", type="primary"):
         pm.save_parameters()
+        if not _sync_osw_ini_from_saved_params():
+            st.warning(
+                "Could not resync `OpenSwathWorkflow.ini` from the saved parameters."
+            )
 
         # Also persist the non-TOPP workflow-level keys that the workflow
         # execution page needs to read (session_state only is not enough
