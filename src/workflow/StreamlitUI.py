@@ -891,6 +891,33 @@ class StreamlitUI:
             if p["original_is_list"] and isinstance(p["value"], str):
                 p["value"] = p["value"].split("\n") if p["value"] else []
 
+        # Streamlit keeps widget keys in session_state across page navigation.
+        # If the saved config changed since the last render, clear the tool's
+        # widget keys so the freshly loaded values can re-initialize the widgets.
+        tool_state_signature_key = (
+            f"{self.parameter_manager.topp_param_prefix}"
+            f"{topp_tool_name}__hydration_signature"
+        )
+        tool_state_signature = json.dumps(
+            [
+                {
+                    "key": p["key"],
+                    "value": p["value"],
+                    "advanced": p["advanced"],
+                    "non_included": p["non_included"],
+                }
+                for p in params
+            ],
+            sort_keys=True,
+            default=str,
+        )
+        if st.session_state.get(tool_state_signature_key) != tool_state_signature:
+            widget_prefix = f"{self.parameter_manager.topp_param_prefix}{topp_tool_name}:1:"
+            for session_key in list(st.session_state.keys()):
+                if session_key.startswith(widget_prefix):
+                    del st.session_state[session_key]
+            st.session_state[tool_state_signature_key] = tool_state_signature
+
         # Split into subsections if required
         param_sections = {}
         section_descriptions = {}
