@@ -99,11 +99,14 @@ def _ensure_osw_ini_for_workspace() -> tuple[Path | None, str | None]:
     """
     dest = INI_DIR / "OpenSwathWorkflow.ini"
     state_prefix = f"{workspace_dir.resolve()}::OpenSwathWorkflow"
-    attempted_key = f"{state_prefix}::descriptor_attempted"
+    signature_key = f"{state_prefix}::descriptor_signature"
     source_key = f"{state_prefix}::descriptor_source"
+    saved_tool_params = _saved_params().get("OpenSwathWorkflow", {})
+    current_signature = json.dumps(saved_tool_params, sort_keys=True, default=str)
 
-    if not st.session_state.get(attempted_key):
-        saved_tool_params = _saved_params().get("OpenSwathWorkflow", {})
+    if (not dest.exists()) or (
+        st.session_state.get(signature_key) != current_signature
+    ):
         if pm.refresh_ini_from_binary("OpenSwathWorkflow", saved_tool_params):
             st.session_state[source_key] = "binary"
         elif dest.exists():
@@ -122,7 +125,7 @@ def _ensure_osw_ini_for_workspace() -> tuple[Path | None, str | None]:
                     st.session_state[source_key] = None
             else:
                 st.session_state[source_key] = None
-        st.session_state[attempted_key] = True
+        st.session_state[signature_key] = current_signature
 
     source = st.session_state.get(source_key)
     if dest.exists():
@@ -130,15 +133,67 @@ def _ensure_osw_ini_for_workspace() -> tuple[Path | None, str | None]:
     return None, source
 
 
-def _sync_osw_ini_from_saved_params() -> bool:
+def _collect_current_osw_values() -> dict[str, object]:
+    values: dict[str, object] = {}
+    prefix = f"{TPFX}OpenSwathWorkflow:1:"
+    for key, value in st.session_state.items():
+        if not key.startswith(prefix):
+            continue
+        if key.endswith("_display"):
+            continue
+        short_key = key.split(":1:", 1)[1]
+        values[short_key] = value
+    return values
+
+
+def _collect_saved_and_current_osw_values() -> dict[str, object]:
+    saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
+    merged_values = (
+        saved_tool_params.copy() if isinstance(saved_tool_params, dict) else {}
+    )
+    merged_values.update(_collect_current_osw_values())
+    return merged_values
+
+
+def _read_ini_short_values(
+    tool: str, ini_path: Path, short_keys: list[str]
+) -> dict[str, object]:
+    values: dict[str, object] = {}
+    if not ini_path.exists():
+        return values
+
+    try:
+        param = poms.Param()
+        poms.ParamXMLFile().load(str(ini_path), param)
+        ini_keys = {
+            k.decode() if isinstance(k, (bytes, bytearray)) else str(k): k
+            for k in param.keys()
+        }
+        for short_key in short_keys:
+            full_key = f"{tool}:1:{short_key}"
+            if full_key not in ini_keys:
+                continue
+            value = param.getValue(ini_keys[full_key])
+            if isinstance(value, bytes):
+                value = value.decode()
+            values[short_key] = value
+    except Exception:
+        return {}
+
+    return values
+
+
+def _sync_osw_ini_from_current_state() -> tuple[bool, Path, Path | None, int, dict[str, object]]:
     """
     Rebuild the workspace OpenSwathWorkflow INI from the installed binary and the
-    currently saved params.json values, then mirror it into openswath-workflow/ini/.
+    current OpenSwathWorkflow widget state, then mirror it into
+    openswath-workflow/ini/.
     """
-    saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
+    merged_tool_params = _collect_saved_and_current_osw_values()
     dest = INI_DIR / "OpenSwathWorkflow.ini"
+    mirrored_dest = workspace_dir / "openswath-workflow" / "ini" / "OpenSwathWorkflow.ini"
 
-    synced = pm.refresh_ini_from_binary("OpenSwathWorkflow", saved_tool_params)
+    synced = pm.refresh_ini_from_binary("OpenSwathWorkflow", merged_tool_params)
     if not synced and dest.exists():
         try:
             param = poms.Param()
@@ -147,7 +202,7 @@ def _sync_osw_ini_from_saved_params() -> bool:
                 k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
                 for k in param.keys()
             }
-            for short_key, value in saved_tool_params.items():
+            for short_key, value in merged_tool_params.items():
                 ini_key = f"OpenSwathWorkflow:1:{short_key}"
                 if ini_key not in ini_keys:
                     continue
@@ -159,16 +214,29 @@ def _sync_osw_ini_from_saved_params() -> bool:
             synced = False
 
     if not synced or not dest.exists():
-        return False
+        return False, dest, None, len(merged_tool_params), {}
 
     try:
-        workflow_ini_dir = workspace_dir / "openswath-workflow" / "ini"
-        workflow_ini_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(dest, workflow_ini_dir / "OpenSwathWorkflow.ini")
+        mirrored_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dest, mirrored_dest)
     except Exception:
-        pass
+        mirrored_dest = None
 
-    return True
+    verified_values = _read_ini_short_values(
+        "OpenSwathWorkflow",
+        dest,
+        [
+            "readOptions",
+            "tempDirectory",
+            "out_chrom",
+            "out_mobilogram",
+            "Debugging:irt_mzml",
+            "Debugging:irt_trafo",
+            "Calibration:MassIMCorrection:debug_im_file",
+            "Calibration:MassIMCorrection:debug_mz_file",
+        ],
+    )
+    return True, dest, mirrored_dest, len(merged_tool_params), verified_values
 
 
 def _load_json_asset(path: Path) -> dict:
@@ -246,6 +314,37 @@ def _seed_checkbox_state(widget_key: str, saved_value: bool) -> None:
     """Restore a saved checkbox state when the current widget state is missing."""
     if widget_key not in st.session_state:
         st.session_state[widget_key] = bool(saved_value)
+
+
+def _rehydrate_osw_special_widgets() -> None:
+    """
+    Reset custom OpenSwathWorkflow helper widgets when the saved tool payload
+    changes so they re-seed from workspace params instead of stale session state.
+    """
+    signature_key = f"{workspace_dir.resolve()}::OpenSwathWorkflow::special_widget_state"
+    saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
+    current_signature = json.dumps(saved_tool_params, sort_keys=True, default=str)
+
+    if st.session_state.get(signature_key) == current_signature:
+        return
+
+    for widget_key in [
+        "osw_save_xics",
+        "osw_save_xims",
+        "osw_save_calibration_debug",
+        "osw_read_options",
+        "osw_xic_output_display",
+        "osw_xim_output_display",
+        "osw_debug_im_display",
+        "osw_debug_mz_display",
+        "osw_debug_trafo_display",
+        "osw_debug_irt_mzml_display",
+        "osw_cache_dir_display",
+        "osw_tr_sel",
+    ]:
+        st.session_state.pop(widget_key, None)
+
+    st.session_state[signature_key] = current_signature
 
 
 def _normalize_context_selection(saved_values) -> list[str]:
@@ -924,6 +1023,8 @@ else:
     else:
         st.caption("Using workspace descriptor: `OpenSwathWorkflow.ini`")
 
+    _rehydrate_osw_special_widgets()
+
     # -- Derived inputs --------------------------------------------------------
     col_in1, col_in2 = st.columns(2)
 
@@ -1567,9 +1668,16 @@ save_col, _ = st.columns([1, 3])
 with save_col:
     if st.button("💾 Save all parameters to workspace", type="primary"):
         pm.save_parameters()
-        if not _sync_osw_ini_from_saved_params():
+        (
+            osw_ini_synced,
+            osw_ini_path,
+            osw_mirrored_ini_path,
+            osw_synced_count,
+            osw_verified_values,
+        ) = _sync_osw_ini_from_current_state()
+        if not osw_ini_synced:
             st.warning(
-                "Could not resync `OpenSwathWorkflow.ini` from the saved parameters."
+                "Could not update `OpenSwathWorkflow.ini` from the current OpenSwathWorkflow UI state."
             )
 
         # Also persist the non-TOPP workflow-level keys that the workflow
@@ -1790,4 +1898,25 @@ with save_col:
                 _write_json_if_changed(matrix_cfg_path, pyprophet_matrix_payload)
         except Exception as _e:
             st.warning(f"Could not save PyProphet config: {_e}")
-        st.success("All parameters saved to workspace `params.json`.")
+        st.success(f"Saved workspace parameters to `{pm.params_file}`.")
+        if osw_ini_synced:
+            st.success(
+                "Updated the shared `OpenSwathWorkflow.ini` used for saved workspace settings "
+                f"({osw_synced_count} values considered): `{osw_ini_path}`"
+            )
+            if osw_mirrored_ini_path is not None:
+                st.success(
+                    "Updated the workflow run copy of `OpenSwathWorkflow.ini`: "
+                    f"`{osw_mirrored_ini_path}`"
+                )
+            if osw_verified_values:
+                verified_pairs = ", ".join(
+                    f"`{key}={value}`"
+                    for key, value in osw_verified_values.items()
+                    if value not in ("", None)
+                )
+                if verified_pairs:
+                    st.info(
+                        "Verified saved values in `OpenSwathWorkflow.ini`: "
+                        f"{verified_pairs}"
+                    )

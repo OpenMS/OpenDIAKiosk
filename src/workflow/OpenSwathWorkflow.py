@@ -24,6 +24,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from .ParameterManager import ParameterManager
 from .WorkflowManager import WorkflowManager
 
 
@@ -85,6 +86,10 @@ class OpenSwathWorkflow(WorkflowManager):
         self._workspace_params_file = self._workspace_dir / "params.json"
         # Shared INI dir (same as config page uses)
         self._shared_ini_dir = self._workspace_dir / "ini"
+        self._workspace_parameter_manager = ParameterManager(
+            self._workspace_dir, workflow_name=self.name
+        )
+        self.executor.parameter_manager = self._workspace_parameter_manager
 
     # ------------------------------------------------------------------
     # Helpers
@@ -94,13 +99,18 @@ class OpenSwathWorkflow(WorkflowManager):
         Rebuild shared workspace paths when the object was created outside the
         normal Streamlit page flow (for example queue workers).
         """
-        if hasattr(self, "_workspace_dir"):
-            return
+        if not hasattr(self, "_workspace_dir"):
+            workflow_dir = Path(self.workflow_dir)
+            self._workspace_dir = workflow_dir.parent
+            self._workspace_params_file = self._workspace_dir / "params.json"
+            self._shared_ini_dir = self._workspace_dir / "ini"
 
-        workflow_dir = Path(self.workflow_dir)
-        self._workspace_dir = workflow_dir.parent
-        self._workspace_params_file = self._workspace_dir / "params.json"
-        self._shared_ini_dir = self._workspace_dir / "ini"
+        if not hasattr(self, "_workspace_parameter_manager"):
+            self._workspace_parameter_manager = ParameterManager(
+                self._workspace_dir, workflow_name=self.name
+            )
+
+        self.executor.parameter_manager = self._workspace_parameter_manager
 
     def _load_workspace_params(self) -> dict:
         """Load params.json saved by the configuration page."""

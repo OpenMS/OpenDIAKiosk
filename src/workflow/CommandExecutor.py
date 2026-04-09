@@ -343,6 +343,8 @@ class CommandExecutor:
             # Add non-default TOPP tool parameters
             if tool in params.keys():
                 for k, v in params[tool].items():
+                    if k in custom_params:
+                        continue
                     # Skip unset optional TOPP values entirely.
                     # Note: 0 and 0.0 are valid values, so use explicit checks.
                     if v == "" or v is None:
