@@ -69,9 +69,21 @@ class FilterResult:
     fasta_text: str = ""
     n_in: int = 0
     n_out: int = 0
+    n_random_added: int = 0
     missing_accs: list[str] = field(default_factory=list)
     error: str = ""
     filename: str = ""
+
+
+@dataclass
+class AppendResult:
+    success: bool
+    fasta_text: str = ""
+    n_base: int = 0
+    n_appended: int = 0
+    n_total: int = 0
+    n_skipped_duplicates: int = 0
+    error: str = ""
 
 
 # -----------------------------------------------------------------------------
@@ -314,6 +326,8 @@ def filter_fasta_by_accession(
     fasta_text: str,
     accessions: list[str],
     source_filename: str = "input.fasta",
+    extra_random_n: int = 0,
+    seed: int | None = None,
 ) -> FilterResult:
     """
     Keep only sequences whose accession is in *accessions*.
@@ -322,6 +336,9 @@ def filter_fasta_by_accession(
         fasta_text:      Raw FASTA string.
         accessions:      List of accession IDs to retain.
         source_filename: Used to build the suggested output filename.
+        extra_random_n:  Number of additional random proteins to append from
+                         the non-matching pool.
+        seed:            Random seed for reproducible random augmentation.
     """
     records = _parse_fasta(fasta_text)
     n_in = len(records)
@@ -334,6 +351,7 @@ def filter_fasta_by_accession(
         return FilterResult(success=False, error="No accessions provided.")
 
     matched: list[tuple] = []
+    unmatched: list[tuple] = []
     found_accs: set[str] = set()
 
     for rec in records:
@@ -341,12 +359,13 @@ def filter_fasta_by_accession(
         if acc in query_set:
             matched.append(rec)
             found_accs.add(acc)
+        else:
+            unmatched.append(rec)
 
     missing = sorted(query_set - found_accs)
 
     stem = Path(source_filename).stem
     n_acc = len(accessions)
-    filename = f"{stem}_filtered{len(matched)}.fasta"
 
     if not matched:
         return FilterResult(
@@ -356,13 +375,81 @@ def filter_fasta_by_accession(
             error=f"None of the {n_acc} requested accessions were found in the FASTA.",
         )
 
+    random_added: list[tuple[str, str, str]] = []
+    if extra_random_n < 0:
+        return FilterResult(
+            success=False,
+            n_in=n_in,
+            missing_accs=missing,
+            error="The number of extra random proteins must be 0 or greater.",
+        )
+
+    if extra_random_n:
+        if extra_random_n > len(unmatched):
+            return FilterResult(
+                success=False,
+                n_in=n_in,
+                n_out=len(matched),
+                missing_accs=missing,
+                error=(
+                    f"Requested {extra_random_n:,} extra random proteins, but only "
+                    f"{len(unmatched):,} non-matching proteins are available."
+                ),
+            )
+        rng = random.Random(seed)
+        random_added = rng.sample(unmatched, extra_random_n)
+
+    selected = matched + random_added
+    filename = f"{stem}_filtered{len(matched)}"
+    if random_added:
+        filename += f"_plusrandom{len(random_added)}"
+    filename += ".fasta"
+
     return FilterResult(
         success=True,
-        fasta_text=_records_to_fasta(matched),
+        fasta_text=_records_to_fasta(selected),
         n_in=n_in,
-        n_out=len(matched),
+        n_out=len(selected),
+        n_random_added=len(random_added),
         missing_accs=missing,
         filename=filename,
+    )
+
+
+def append_fasta_records(base_fasta_text: str, extra_fasta_text: str) -> AppendResult:
+    """
+    Append FASTA records from *extra_fasta_text* onto *base_fasta_text* while
+    skipping exact-header duplicates. The output is reserialised so the final
+    FASTA is properly formatted.
+    """
+    base_records = _parse_fasta(base_fasta_text)
+    extra_records = _parse_fasta(extra_fasta_text)
+
+    if not base_records:
+        return AppendResult(success=False, error="Base FASTA contains no records.")
+    if not extra_records:
+        return AppendResult(success=False, error="Append FASTA contains no records.")
+
+    seen_headers = {header for header, _acc, _seq in base_records}
+    appended: list[tuple[str, str, str]] = []
+    skipped = 0
+
+    for record in extra_records:
+        header = record[0]
+        if header in seen_headers:
+            skipped += 1
+            continue
+        seen_headers.add(header)
+        appended.append(record)
+
+    combined = base_records + appended
+    return AppendResult(
+        success=True,
+        fasta_text=_records_to_fasta(combined),
+        n_base=len(base_records),
+        n_appended=len(appended),
+        n_total=len(combined),
+        n_skipped_duplicates=skipped,
     )
 
 

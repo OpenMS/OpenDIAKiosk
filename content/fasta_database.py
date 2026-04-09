@@ -17,9 +17,11 @@ import streamlit as st
 
 from src.common.common import page_setup
 from src.workflow.UniProtFastaManager import (
+    AppendResult,
     COMMON_SPECIES,
     REVIEW_OPTIONS,
     FilterResult,
+    append_fasta_records,
     count_fasta_entries,
     download_uniprot_fasta,
     filter_fasta_by_accession,
@@ -28,6 +30,12 @@ from src.workflow.UniProtFastaManager import (
 
 # -----------------------------------------------------------------------------
 page_setup()
+
+
+UNIVERSAL_CONTAMINANTS_FASTA = Path(
+    "example-data", "fasta", "0602_Universal Contaminants.fasta"
+)
+BIOGNOSYS_IRT_FASTA = Path("example-data", "fasta", "biognosys_irtfusion.fasta")
 
 
 # Session state defaults
@@ -42,6 +50,63 @@ _ss = {
 for k, v in _ss.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+
+def _append_filename_suffix_once(filename: str, suffix: str) -> str:
+    path = Path(filename or "download.fasta")
+    ext = path.suffix or ".fasta"
+    stem = path.stem or "download"
+    suffix_token = f"_{suffix}"
+    if not stem.endswith(suffix_token):
+        stem += suffix_token
+    return f"{stem}{ext}"
+
+
+def _append_builtin_fasta_to_download(
+    addon_path: Path,
+    addon_label: str,
+    filename_suffix: str,
+    save_to_workspace: bool,
+    workspace_dir: Path,
+) -> None:
+    if not st.session_state.dl_result_text:
+        st.error("No downloaded FASTA is currently loaded.")
+        return
+    if not addon_path.exists():
+        st.error(f"Could not find bundled FASTA: `{addon_path}`")
+        return
+
+    addon_text = addon_path.read_text(encoding="utf-8", errors="replace")
+    result: AppendResult = append_fasta_records(st.session_state.dl_result_text, addon_text)
+    if not result.success:
+        st.error(f"Could not append {addon_label}: {result.error}")
+        return
+
+    st.session_state.dl_result_text = result.fasta_text
+    st.session_state.dl_filename = _append_filename_suffix_once(
+        st.session_state.dl_filename,
+        filename_suffix,
+    )
+
+    if save_to_workspace:
+        fasta_workspace = workspace_dir / "input-files" / "fasta"
+        fasta_workspace.mkdir(parents=True, exist_ok=True)
+        out_path = fasta_workspace / st.session_state.dl_filename
+        out_path.write_text(st.session_state.dl_result_text, encoding="utf-8")
+        st.success(f"Updated workspace FASTA: `{out_path}`")
+
+    if result.n_appended:
+        st.success(
+            f"Appended {result.n_appended:,} {addon_label} entr"
+            f"{'y' if result.n_appended == 1 else 'ies'}."
+        )
+    else:
+        st.info(f"No new {addon_label} entries were appended; all were already present.")
+    if result.n_skipped_duplicates:
+        st.caption(
+            f"Skipped {result.n_skipped_duplicates:,} duplicate "
+            f"{addon_label} entr{'y' if result.n_skipped_duplicates == 1 else 'ies'}."
+        )
 
 # -----------------------------------------------------------------------------
 # Page header
@@ -222,6 +287,37 @@ with tab_download:
             f"**Last download:** `{st.session_state.dl_filename}`  "
             f"({count_fasta_entries(st.session_state.dl_result_text):,} entries)"
         )
+        st.caption(
+            "Optional additions can be appended onto the current downloaded FASTA "
+            "before saving or downloading it."
+        )
+        addon_col1, addon_col2 = st.columns(2)
+        with addon_col1:
+            if st.button(
+                "➕ Append Universal Contaminants",
+                key="dl_append_contaminants",
+                use_container_width=True,
+            ):
+                _append_builtin_fasta_to_download(
+                    addon_path=UNIVERSAL_CONTAMINANTS_FASTA,
+                    addon_label="universal contaminant",
+                    filename_suffix="plus_contaminants",
+                    save_to_workspace=save_to_ws,
+                    workspace_dir=workspace_dir,
+                )
+        with addon_col2:
+            if st.button(
+                "➕ Append Biognosys iRT Fusion",
+                key="dl_append_biognosys_irt",
+                use_container_width=True,
+            ):
+                _append_builtin_fasta_to_download(
+                    addon_path=BIOGNOSYS_IRT_FASTA,
+                    addon_label="Biognosys iRT fusion",
+                    filename_suffix="plus_irtfusion",
+                    save_to_workspace=save_to_ws,
+                    workspace_dir=workspace_dir,
+                )
         st.download_button(
             label="💾 Save FASTA to disk",
             data=st.session_state.dl_result_text.encode("utf-8"),
@@ -454,6 +550,42 @@ with tab_filter:
         if accs:
             st.caption(f"{len(accs):,} unique accession(s) ready to filter.")
 
+        st.markdown("#### Optional random augmentation")
+        st.caption(
+            "Append additional random proteins from the non-matching pool after "
+            "the accession-matched proteins."
+        )
+        rand_col1, rand_col2, rand_col3 = st.columns(3)
+        with rand_col1:
+            add_random_proteins = st.checkbox(
+                "Append random proteins",
+                value=False,
+                key="filt_acc_add_random",
+            )
+        with rand_col2:
+            extra_random_n = st.number_input(
+                "Random proteins to append (N)",
+                min_value=1,
+                value=25,
+                step=5,
+                disabled=not add_random_proteins,
+                key="filt_acc_extra_random_n",
+            )
+        with rand_col3:
+            acc_use_seed = st.checkbox(
+                "Use fixed random seed",
+                value=True,
+                disabled=not add_random_proteins,
+                key="filt_acc_use_seed",
+            )
+            acc_seed_val = st.number_input(
+                "Random seed",
+                value=42,
+                min_value=0,
+                disabled=(not add_random_proteins or not acc_use_seed),
+                key="filt_acc_seed",
+            )
+
         run_acc = st.button(
             "🔬 Apply Accession Filter",
             type="primary",
@@ -467,6 +599,14 @@ with tab_filter:
                     fasta_text=fasta_text_input,
                     accessions=accs,
                     source_filename=fasta_source_name,
+                    extra_random_n=(
+                        int(extra_random_n) if add_random_proteins else 0
+                    ),
+                    seed=(
+                        int(acc_seed_val)
+                        if add_random_proteins and acc_use_seed
+                        else None
+                    ),
                 )
 
             if not res.success:
@@ -479,11 +619,19 @@ with tab_filter:
             else:
                 st.session_state.filt_result_text = res.fasta_text
                 st.session_state.filt_filename = res.filename
-                st.success(
-                    f"✅ Matched **{res.n_out:,}** of **{len(accs):,}** "
-                    f"requested accessions from {res.n_in:,} total entries "
-                    f"→ `{res.filename}`"
-                )
+                if res.n_random_added:
+                    n_accession_matches = res.n_out - res.n_random_added
+                    st.success(
+                        f"✅ Matched **{n_accession_matches:,}** accession proteins "
+                        f"and appended **{res.n_random_added:,}** random proteins "
+                        f"from {res.n_in:,} total entries → `{res.filename}`"
+                    )
+                else:
+                    st.success(
+                        f"✅ Matched **{res.n_out:,}** of **{len(accs):,}** "
+                        f"requested accessions from {res.n_in:,} total entries "
+                        f"→ `{res.filename}`"
+                    )
                 if res.missing_accs:
                     with st.expander(
                         f"⚠️ {len(res.missing_accs):,} accessions not found",
