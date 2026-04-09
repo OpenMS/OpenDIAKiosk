@@ -340,17 +340,27 @@ class CommandExecutor:
                 # standard case, files was a list of strings, take the file name at index
                 else:
                     command += [value[i]]
+            managed_params = set(input_output.keys()) | set(custom_params.keys()) | {
+                "threads"
+            }
+
             # Add non-default TOPP tool parameters
             if tool in params.keys():
                 for k, v in params[tool].items():
-                    if k in custom_params:
+                    if k in managed_params:
                         continue
                     # Skip unset optional TOPP values entirely.
                     # Note: 0 and 0.0 are valid values, so use explicit checks.
                     if v == "" or v is None:
                         continue
+                    if isinstance(v, (list, tuple)) and len(v) == 0:
+                        continue
+                    if isinstance(v, str) and v.strip() == "[]":
+                        continue
                     command += [f"-{k}"]
-                    if isinstance(v, str) and "\n" in v:
+                    if isinstance(v, (list, tuple)):
+                        command += [str(x) for x in v]
+                    elif isinstance(v, str) and "\n" in v:
                         command += v.split("\n")
                     else:
                         command += [str(v)]
@@ -358,6 +368,10 @@ class CommandExecutor:
             for k, v in custom_params.items():
                 # Skip unset optional TOPP values entirely.
                 if v == "" or v is None:
+                    continue
+                if isinstance(v, (list, tuple)) and len(v) == 0:
+                    continue
+                if isinstance(v, str) and v.strip() == "[]":
                     continue
                 command += [f"-{k}"]
                 if isinstance(v, list):

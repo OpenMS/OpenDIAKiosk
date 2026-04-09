@@ -889,7 +889,20 @@ class StreamlitUI:
             # Ensure list parameters stay as lists after loading from JSON
             # (JSON may store single-item lists as strings)
             if p["original_is_list"] and isinstance(p["value"], str):
-                p["value"] = p["value"].split("\n") if p["value"] else []
+                stripped_value = p["value"].strip()
+                if stripped_value in ("", "[]"):
+                    p["value"] = []
+                else:
+                    try:
+                        parsed_value = json.loads(stripped_value)
+                    except Exception:
+                        parsed_value = None
+                    if isinstance(parsed_value, list):
+                        p["value"] = parsed_value
+                    else:
+                        p["value"] = [
+                            entry for entry in p["value"].split("\n") if entry.strip()
+                        ]
 
         # Streamlit keeps widget keys in session_state across page navigation.
         # If the saved config changed since the last render, clear the tool's
@@ -1430,6 +1443,76 @@ class StreamlitUI:
         if default_open_sections is None:
             default_open_sections = []
 
+        def _coerce_bool(value):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on"}
+            return bool(value)
+
+        def _coerce_text_widget_state(widget_key, value):
+            if widget_key not in st.session_state:
+                return value
+            state_value = st.session_state.get(widget_key)
+            if isinstance(state_value, str):
+                return state_value
+            if isinstance(state_value, list):
+                coerced = "\n".join(str(v) for v in state_value)
+            elif isinstance(state_value, dict):
+                coerced = json.dumps(state_value, indent=2)
+            elif state_value is None:
+                coerced = ""
+            else:
+                coerced = str(state_value)
+            st.session_state[widget_key] = coerced
+            return coerced
+
+        def _coerce_multiselect_state(widget_key):
+            if widget_key not in st.session_state:
+                return
+            state_value = st.session_state.get(widget_key)
+            if isinstance(state_value, list):
+                return
+            if isinstance(state_value, str):
+                stripped = state_value.strip()
+                st.session_state[widget_key] = (
+                    [item for item in stripped.splitlines() if item]
+                    if stripped
+                    else []
+                )
+                return
+            if state_value is None:
+                st.session_state[widget_key] = []
+                return
+            st.session_state[widget_key] = [str(state_value)]
+
+        def _coerce_int_state(widget_key, default):
+            if widget_key not in st.session_state:
+                return default
+            try:
+                coerced = int(st.session_state[widget_key])
+            except Exception:
+                coerced = default
+            st.session_state[widget_key] = coerced
+            return coerced
+
+        def _coerce_float_state(widget_key, default):
+            if widget_key not in st.session_state:
+                return default
+            try:
+                coerced = float(st.session_state[widget_key])
+            except Exception:
+                coerced = default
+            st.session_state[widget_key] = coerced
+            return coerced
+
+        def _coerce_checkbox_state(widget_key, default):
+            if widget_key not in st.session_state:
+                return default
+            coerced = _coerce_bool(st.session_state[widget_key])
+            st.session_state[widget_key] = coerced
+            return coerced
+
         current_params = self._current_params()
         sections = config.get("sections", {})
         for section_name, section_def in sections.items():
@@ -1494,17 +1577,22 @@ class StreamlitUI:
                             n_vtype = nested_def.get("value_type", "string")
 
                             # reuse mapping logic for nested options
-                            if n_vtype in ("boolean", "bool"):
+                            if n_vtype in ("boolean", "bool", "boolean_flag"):
+                                default_bool = (
+                                    bool(n_value) if n_value is not None else False
+                                )
+                                default_bool = _coerce_checkbox_state(
+                                    nested_full, default_bool
+                                )
                                 st.checkbox(
                                     nested_display,
-                                    value=bool(n_value)
-                                    if n_value is not None
-                                    else False,
+                                    value=default_bool,
                                     key=nested_full,
                                     help=nested_def.get("description"),
                                 )
                             elif n_vtype in ("integer", "int"):
                                 default = int(n_value) if n_value is not None else 0
+                                default = _coerce_int_state(nested_full, default)
                                 st.number_input(
                                     nested_display,
                                     value=default,
@@ -1513,6 +1601,7 @@ class StreamlitUI:
                                 )
                             elif n_vtype in ("float", "double"):
                                 default = float(n_value) if n_value is not None else 0.0
+                                default = _coerce_float_state(nested_full, default)
                                 st.number_input(
                                     nested_display,
                                     value=default,
@@ -1526,6 +1615,7 @@ class StreamlitUI:
                                     "valid_strings"
                                 ) or nested_def.get("allowed_values")
                                 if valid and isinstance(valid, list):
+                                    _coerce_multiselect_state(nested_full)
                                     default = (
                                         n_value
                                         if isinstance(n_value, list)
@@ -1548,6 +1638,9 @@ class StreamlitUI:
                                         if isinstance(n_value, list)
                                         else (n_value or "")
                                     )
+                                    text_val = _coerce_text_widget_state(
+                                        nested_full, text_val
+                                    )
                                     st.text_area(
                                         nested_display,
                                         value=text_val,
@@ -1556,23 +1649,35 @@ class StreamlitUI:
                                     )
                             elif str(n_vtype).startswith("object"):
                                 if isinstance(n_value, dict):
+                                    text_value = _coerce_text_widget_state(
+                                        nested_full,
+                                        json.dumps(n_value, indent=2),
+                                    )
                                     st.text_area(
                                         nested_display,
-                                        value=json.dumps(n_value, indent=2),
+                                        value=text_value,
                                         key=nested_full,
                                         help=nested_def.get("description"),
                                     )
                                 else:
+                                    text_value = _coerce_text_widget_state(
+                                        nested_full,
+                                        n_value if n_value is not None else "",
+                                    )
                                     st.text_input(
                                         nested_display,
-                                        value=n_value if n_value is not None else "",
+                                        value=text_value,
                                         key=nested_full,
                                         help=nested_def.get("description"),
                                     )
                             else:
+                                text_value = _coerce_text_widget_state(
+                                    nested_full,
+                                    n_value if n_value is not None else "",
+                                )
                                 st.text_input(
                                     nested_display,
-                                    value=n_value if n_value is not None else "",
+                                    value=text_value,
                                     key=nested_full,
                                     help=nested_def.get("description"),
                                 )
@@ -1586,15 +1691,18 @@ class StreamlitUI:
                     vtype = opt_def.get("value_type", "string")
 
                     # Map schema value_type to widget_type
-                    if vtype in ("boolean", "bool"):
+                    if vtype in ("boolean", "bool", "boolean_flag"):
+                        default_bool = bool(value) if value is not None else False
+                        default_bool = _coerce_checkbox_state(full_key, default_bool)
                         st.checkbox(
                             display_name,
-                            value=bool(value) if value is not None else False,
+                            value=default_bool,
                             key=full_key,
                             help=opt_def.get("description"),
                         )
                     elif vtype in ("integer", "int"):
                         default = int(value) if value is not None else 0
+                        default = _coerce_int_state(full_key, default)
                         st.number_input(
                             display_name,
                             value=default,
@@ -1603,6 +1711,7 @@ class StreamlitUI:
                         )
                     elif vtype in ("float", "double"):
                         default = float(value) if value is not None else 0.0
+                        default = _coerce_float_state(full_key, default)
                         st.number_input(
                             display_name,
                             value=default,
@@ -1615,6 +1724,7 @@ class StreamlitUI:
                             "allowed_values"
                         )
                         if valid and isinstance(valid, list):
+                            _coerce_multiselect_state(full_key)
                             # multiselect
                             default = (
                                 value
@@ -1637,6 +1747,7 @@ class StreamlitUI:
                                 if isinstance(value, list)
                                 else (value or "")
                             )
+                            text_val = _coerce_text_widget_state(full_key, text_val)
                             st.text_area(
                                 display_name,
                                 value=text_val,
@@ -1647,24 +1758,36 @@ class StreamlitUI:
                         # For simple dicts like static_mods (string->float) provide a textarea or JSON editor
                         # If value is a dict, show as JSON and allow editing
                         if isinstance(value, dict):
+                            text_value = _coerce_text_widget_state(
+                                full_key,
+                                json.dumps(value, indent=2),
+                            )
                             st.text_area(
                                 display_name,
-                                value=json.dumps(value, indent=2),
+                                value=text_value,
                                 key=full_key,
                                 help=opt_def.get("description"),
                             )
                         else:
+                            text_value = _coerce_text_widget_state(
+                                full_key,
+                                value if value is not None else "",
+                            )
                             st.text_input(
                                 display_name,
-                                value=value if value is not None else "",
+                                value=text_value,
                                 key=full_key,
                                 help=opt_def.get("description"),
                             )
                     else:
                         # default to text input
+                        text_value = _coerce_text_widget_state(
+                            full_key,
+                            value if value is not None else "",
+                        )
                         st.text_input(
                             display_name,
-                            value=value if value is not None else "",
+                            value=text_value,
                             key=full_key,
                             help=opt_def.get("description"),
                         )

@@ -748,6 +748,21 @@ class OpenSwathWorkflow(WorkflowManager):
         so that executor.run_topp() can find it (it appends -ini <path>).
         """
         self._ensure_workspace_context()
+        workspace_params = self._load_workspace_params()
+        saved_tool_params = workspace_params.get(tool, {})
+        if not isinstance(saved_tool_params, dict):
+            saved_tool_params = {}
+
+        refreshed = self._workspace_parameter_manager.refresh_ini_from_binary(
+            tool,
+            saved_tool_params,
+        )
+        if refreshed:
+            self.logger.log(
+                f"Refreshed workspace INI for {tool} from installed binary: "
+                f"{self._shared_ini_dir / f'{tool}.ini'}"
+            )
+
         shared = self._shared_ini_dir / f"{tool}.ini"
         dest = self.parameter_manager.ini_dir / f"{tool}.ini"
         if not shared.exists():

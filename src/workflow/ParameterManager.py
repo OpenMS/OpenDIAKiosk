@@ -136,7 +136,16 @@ class ParameterManager:
             if value in (None, ""):
                 return []
             if isinstance(value, str):
-                return value.split("\n")
+                stripped = value.strip()
+                if stripped in ("", "[]"):
+                    return []
+                try:
+                    parsed = json.loads(stripped)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, list):
+                    return parsed
+                return [entry for entry in value.split("\n") if entry.strip()]
             if isinstance(value, tuple):
                 return list(value)
             return value if isinstance(value, list) else [value]
@@ -253,9 +262,7 @@ class ParameterManager:
                     tool_changed = True
 
                 # keep non-default value in params.json, otherwise remove stale entry
-                if (default_value != coerced_value) or (
-                    isinstance(default_value, list) and not coerced_value
-                ):
+                if default_value != coerced_value:
                     json_params[tool][short_key] = coerced_value
                 else:
                     json_params[tool].pop(short_key, None)
