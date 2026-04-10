@@ -452,18 +452,18 @@ jobs:
 
     - name: Compress Installer
       run: |
-        7z a OpenMS-App.zip ${{ env.APP_NAME }}.msi
+        7z a OpenDIAKiosk.zip ${{ env.APP_NAME }}.msi
 
     - name: Archive build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: OpenMS-App
+        name: OpenDIAKiosk
         path: |
-          OpenMS-App.zip
+          OpenDIAKiosk.zip
 
     - name: Upload Artifact as Release Asset
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v2
       with:
-        files: OpenMS-App.zip
+        files: OpenDIAKiosk.zip
         token: ${{ github.token }}
