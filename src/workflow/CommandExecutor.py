@@ -10,6 +10,7 @@ import sys
 import importlib.util
 import json
 import streamlit as st
+import xml.etree.ElementTree as ET
 
 
 class CommandExecutor:
@@ -267,6 +268,117 @@ class CommandExecutor:
         stdout_thread.join()
         stderr_thread.join()
 
+    @staticmethod
+    def _coerce_cli_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _load_topp_param_types(ini_path: Path, tool: str) -> dict[str, str]:
+        """
+        Parse a TOPP INI XML file and return a mapping of short parameter key -> type.
+
+        Example:
+            OpenSwathWorkflow:1:Calibration:auto_irt:prefilter:enabled -> bool
+            returns {"Calibration:auto_irt:prefilter:enabled": "bool"}
+        """
+        if not ini_path.exists():
+            return {}
+
+        try:
+            root = ET.parse(ini_path).getroot()
+        except Exception:
+            return {}
+
+        key_types: dict[str, str] = {}
+
+        def walk(node, parts: list[str]) -> None:
+            for child in list(node):
+                tag = child.tag.split("}", 1)[-1]
+                name = child.attrib.get("name")
+                if not name:
+                    continue
+
+                if tag == "NODE":
+                    walk(child, parts + [name])
+                elif tag in {"ITEM", "ITEMLIST"}:
+                    key_types[":".join(parts + [name])] = child.attrib.get("type", "")
+
+        walk(root, [])
+
+        prefix = f"{tool}:1:"
+        return {
+            full_key.split(prefix, 1)[1]: value_type
+            for full_key, value_type in key_types.items()
+            if full_key.startswith(prefix)
+        }
+
+    @staticmethod
+    def _load_asset_topp_param_types(tool: str) -> dict[str, str]:
+        """
+        Load parameter types from bundled descriptor assets for a TOPP tool.
+
+        These descriptors can be newer or more accurate than the runtime
+        `-write_ini` output for some OpenMS builds. They are used as a secondary
+        type source during CLI argument construction.
+        """
+        repo_root = Path(__file__).resolve().parents[2]
+        asset_dir = repo_root / "assets" / "common-tool-descriptors" / tool.lower()
+        if not asset_dir.exists():
+            return {}
+
+        merged: dict[str, str] = {}
+        for ini_path in sorted(asset_dir.glob("*.ini")):
+            current = CommandExecutor._load_topp_param_types(ini_path, tool)
+            for key, value_type in current.items():
+                # Prefer bool whenever any bundled descriptor marks the key as bool.
+                if merged.get(key) == "bool":
+                    continue
+                if value_type == "bool" or key not in merged:
+                    merged[key] = value_type
+        return merged
+
+    def _append_topp_param_arg(
+        self,
+        command: list[str],
+        key: str,
+        value,
+        param_types: dict[str, str],
+    ) -> None:
+        """
+        Append a TOPP CLI argument while respecting INI-declared parameter types.
+
+        OpenMS `type="bool"` parameters are flags. They must be emitted as
+        `-flag` when true, and omitted when false.
+        """
+        # Skip unset optional TOPP values entirely.
+        # Note: 0 and 0.0 are valid values, so use explicit checks.
+        if value == "" or value is None:
+            return
+        if isinstance(value, (list, tuple)) and len(value) == 0:
+            return
+        if isinstance(value, str) and value.strip() == "[]":
+            return
+
+        param_type = param_types.get(key)
+        cli_flag = f"-{key}"
+
+        if param_type == "bool":
+            if self._coerce_cli_bool(value):
+                command.append(cli_flag)
+            return
+
+        command.append(cli_flag)
+        if isinstance(value, (list, tuple)):
+            command += [str(x) for x in value]
+        elif isinstance(value, str) and "\n" in value:
+            command += [entry for entry in value.split("\n") if entry != ""]
+        else:
+            command += [str(value)]
+
     def run_topp(
         self,
         tool: str,
@@ -322,6 +434,12 @@ class CommandExecutor:
 
         # Load parameters for non-defaults
         params = self.parameter_manager.get_parameters_from_json()
+        ini_path = Path(self.parameter_manager.ini_dir, tool + ".ini").resolve()
+        param_types = self._load_topp_param_types(ini_path, tool)
+        asset_param_types = self._load_asset_topp_param_types(tool)
+        for key, value_type in asset_param_types.items():
+            if value_type == "bool" or key not in param_types:
+                param_types[key] = value_type
         # Construct commands for each process
         for i in range(n_processes):
             command = [tool]
@@ -349,41 +467,15 @@ class CommandExecutor:
                 for k, v in params[tool].items():
                     if k in managed_params:
                         continue
-                    # Skip unset optional TOPP values entirely.
-                    # Note: 0 and 0.0 are valid values, so use explicit checks.
-                    if v == "" or v is None:
-                        continue
-                    if isinstance(v, (list, tuple)) and len(v) == 0:
-                        continue
-                    if isinstance(v, str) and v.strip() == "[]":
-                        continue
-                    command += [f"-{k}"]
-                    if isinstance(v, (list, tuple)):
-                        command += [str(x) for x in v]
-                    elif isinstance(v, str) and "\n" in v:
-                        command += v.split("\n")
-                    else:
-                        command += [str(v)]
+                    self._append_topp_param_arg(command, k, v, param_types)
             # Add custom parameters
             for k, v in custom_params.items():
-                # Skip unset optional TOPP values entirely.
-                if v == "" or v is None:
-                    continue
-                if isinstance(v, (list, tuple)) and len(v) == 0:
-                    continue
-                if isinstance(v, str) and v.strip() == "[]":
-                    continue
-                command += [f"-{k}"]
-                if isinstance(v, list):
-                    command += [str(x) for x in v]
-                else:
-                    command += [str(v)]
+                self._append_topp_param_arg(command, k, v, param_types)
             # Add threads parameter for TOPP tools
             command += ["-threads", str(threads_per_command)]
             commands.append(command)
 
             # check if a ini file has been written, if yes use it (contains custom defaults)
-            ini_path = Path(self.parameter_manager.ini_dir, tool + ".ini").resolve()
             if ini_path.exists():
                 command += ["-ini", str(ini_path)]
 
