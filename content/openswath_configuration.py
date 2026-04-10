@@ -15,6 +15,7 @@ JSON-based tools → custom widgets driven by the JSON schema
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 from pathlib import Path
@@ -316,6 +317,12 @@ def _seed_checkbox_state(widget_key: str, saved_value: bool) -> None:
         st.session_state[widget_key] = bool(saved_value)
 
 
+def _seed_value_state(widget_key: str, saved_value) -> None:
+    """Restore a generic widget value when the current widget state is missing."""
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = saved_value
+
+
 def _rehydrate_osw_special_widgets() -> None:
     """
     Reset custom OpenSwathWorkflow helper widgets when the saved tool payload
@@ -355,6 +362,188 @@ def _normalize_context_selection(saved_values) -> list[str]:
         saved_values = []
     normalized = [value for value in PY_INFER_CONTEXTS if value in saved_values]
     return normalized or ["global"]
+
+
+def _pyprophet_config_path(cmd_key: str) -> Path:
+    return workspace_dir / "tools-configs" / "pyprophet" / f"{cmd_key}.json"
+
+
+def _pyprophet_widget_keys(
+    cmd_key: str,
+    section_name: str,
+    opt_name: str,
+    nested_name: str | None = None,
+) -> tuple[str, str]:
+    short_key = f"pyprophet:{cmd_key}:{section_name}:{opt_name}"
+    if nested_name is not None:
+        short_key = f"{short_key}:{nested_name}"
+    return short_key, f"{PPFX}{short_key}"
+
+
+def _pyprophet_saved_or_default_value(
+    saved_cfg: dict,
+    opt_name: str,
+    opt_def: dict,
+    nested_name: str | None = None,
+):
+    if nested_name is not None:
+        nested_saved = saved_cfg.get(opt_name)
+        if isinstance(nested_saved, dict) and nested_name in nested_saved:
+            return nested_saved[nested_name]
+        return opt_def.get("value", opt_def.get("default"))
+    if opt_name in saved_cfg:
+        return saved_cfg.get(opt_name)
+    return opt_def.get("value", opt_def.get("default"))
+
+
+def _prepare_pyprophet_config(
+    cmd_key: str,
+    cfg: dict,
+) -> tuple[dict, str, str | None, str | None]:
+    cfg_to_render = copy.deepcopy(cfg)
+    cmd_name = cfg.get("meta", {}).get("command", "")
+    low_cmd_name = cmd_name.lower()
+    low_cmd_key = cmd_key.lower()
+
+    if "export" in low_cmd_name or "export" in low_cmd_key:
+        sections = cfg_to_render.get("sections", {})
+        if "alignment" in sections:
+            sections.pop("alignment", None)
+            cfg_to_render["sections"] = sections
+
+    if cmd_key in {
+        "pyprophet_infer_peptide_config",
+        "pyprophet_infer_protein_config",
+    }:
+        sections = cfg_to_render.get("sections", {})
+        context_section = sections.get("inference_context", {})
+        context_options = context_section.get("options", {})
+        context_options.pop("context", None)
+        if context_options:
+            context_section["options"] = context_options
+            sections["inference_context"] = context_section
+        else:
+            sections.pop("inference_context", None)
+        cfg_to_render["sections"] = sections
+
+    derived_in = None
+    derived_out = None
+    if "score" in low_cmd_name or "score" in low_cmd_key:
+        derived_in = "openswath_results.osw"
+    if "infer" in low_cmd_name or "infer" in low_cmd_key:
+        derived_in = "openswath_results.osw"
+    if "export" in low_cmd_name or "export" in low_cmd_key:
+        derived_in = "openswath_results.osw"
+        derived_out = "openswath_results.tsv"
+
+    if (derived_in is not None) or (derived_out is not None):
+        try:
+            io_opts = cfg_to_render.get("sections", {}).get("io", {}).get("options", {})
+            io_opts.pop("in", None)
+            io_opts.pop("out", None)
+            if "io" in cfg_to_render.get("sections", {}):
+                cfg_to_render["sections"]["io"]["options"] = io_opts
+        except Exception:
+            pass
+
+    return cfg_to_render, cmd_name, derived_in, derived_out
+
+
+def _seed_pyprophet_structured_state(
+    cmd_key: str,
+    cfg: dict,
+    saved_cfg: dict,
+    derived_in: str | None = None,
+    derived_out: str | None = None,
+) -> None:
+    for section_name, section_def in cfg.get("sections", {}).items():
+        for opt_name, opt_def in section_def.get("options", {}).items():
+            if isinstance(opt_def, dict) and "options" in opt_def:
+                for nested_name, nested_def in opt_def.get("options", {}).items():
+                    _, full_key = _pyprophet_widget_keys(
+                        cmd_key,
+                        section_name,
+                        opt_name,
+                        nested_name,
+                    )
+                    _seed_value_state(
+                        full_key,
+                        _pyprophet_saved_or_default_value(
+                            saved_cfg, opt_name, nested_def, nested_name
+                        ),
+                    )
+                continue
+
+            _, full_key = _pyprophet_widget_keys(cmd_key, section_name, opt_name)
+            _seed_value_state(
+                full_key,
+                _pyprophet_saved_or_default_value(saved_cfg, opt_name, opt_def),
+            )
+
+    if derived_in is not None:
+        st.session_state[f"{PPFX}pyprophet:{cmd_key}:io:in"] = derived_in
+    if derived_out is not None:
+        st.session_state[f"{PPFX}pyprophet:{cmd_key}:io:out"] = derived_out
+
+
+def _coerce_pyprophet_state_value(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+def _collect_pyprophet_command_payload(
+    cmd_key: str,
+    cfg: dict,
+    saved_cfg: dict,
+    derived_in: str | None = None,
+    derived_out: str | None = None,
+    infer_context_values: list[str] | None = None,
+) -> dict:
+    payload: dict[str, object] = {}
+    for section_name, section_def in cfg.get("sections", {}).items():
+        for opt_name, opt_def in section_def.get("options", {}).items():
+            if section_name == "io" and opt_name == "in" and derived_in is not None:
+                payload[opt_name] = derived_in
+                continue
+            if section_name == "io" and opt_name == "out" and derived_out is not None:
+                payload[opt_name] = derived_out
+                continue
+
+            if isinstance(opt_def, dict) and "options" in opt_def:
+                nested_payload = {}
+                for nested_name, nested_def in opt_def.get("options", {}).items():
+                    _, full_key = _pyprophet_widget_keys(
+                        cmd_key,
+                        section_name,
+                        opt_name,
+                        nested_name,
+                    )
+                    value = st.session_state.get(
+                        full_key,
+                        _pyprophet_saved_or_default_value(
+                            saved_cfg, opt_name, nested_def, nested_name
+                        ),
+                    )
+                    nested_payload[nested_name] = _coerce_pyprophet_state_value(value)
+                payload[opt_name] = nested_payload
+                continue
+
+            _, full_key = _pyprophet_widget_keys(cmd_key, section_name, opt_name)
+            value = st.session_state.get(
+                full_key,
+                _pyprophet_saved_or_default_value(saved_cfg, opt_name, opt_def),
+            )
+            payload[opt_name] = _coerce_pyprophet_state_value(value)
+
+    if infer_context_values is not None:
+        payload.pop("context", None)
+        payload["contexts"] = infer_context_values or ["global"]
+
+    return payload
 
 
 # -----------------------------------------------------------------------------
@@ -1329,10 +1518,18 @@ pyprophet_matrix_payload: dict | None = None
 
 if cfg_files:
     st.caption(
-        "PyProphet structured configuration templates detected. Render one panel at a time to keep the page responsive over remote connections."
+        "PyProphet structured configuration templates detected. "
+        "Grouped renders each subcommand as its own panel; Focused renders one panel at a time."
     )
 
+    pyprophet_order = {
+        "pyprophet_score_config": 0,
+        "pyprophet_infer_peptide_config": 1,
+        "pyprophet_infer_protein_config": 2,
+        "pyprophet_export_tsv_config": 3,
+    }
     cfg_entries: list[tuple[str, str, dict]] = []
+    saved_cmd_cfgs: dict[str, dict] = {}
     for cfg_path in cfg_files:
         cfg = _load_json_asset(cfg_path)
         if not cfg:
@@ -1340,36 +1537,183 @@ if cfg_files:
         cmd_key = cfg_path.stem
         title = cfg.get("meta", {}).get("command", cmd_key)
         cfg_entries.append((cmd_key, title, cfg))
+        saved_cfg_path = _pyprophet_config_path(cmd_key)
+        saved_cmd_cfgs[cmd_key] = (
+            _load_json_asset(saved_cfg_path) if saved_cfg_path.exists() else {}
+        )
 
-    panel_options = [cmd_key for cmd_key, _, _ in cfg_entries] + ["__matrix__"]
-    panel_labels = {
-        cmd_key: title for cmd_key, title, _ in cfg_entries
-    } | {"__matrix__": "pyprophet export matrix"}
-    _seed_choice_state(
-        "pyprophet_panel_selection",
-        panel_options,
-        panel_options[0] if panel_options else "__matrix__",
-    )
-    selected_pyprophet_panel = st.selectbox(
-        "PyProphet panel",
-        options=panel_options,
-        key="pyprophet_panel_selection",
-        format_func=lambda option: panel_labels.get(option, option),
-        help="Only the selected PyProphet panel is rendered on this page load.",
+    cfg_entries.sort(key=lambda entry: pyprophet_order.get(entry[0], 99))
+
+    pyprophet_view_key = "pyprophet_param_view_mode"
+    pyprophet_view_options = ["Grouped", "Focused"]
+    _seed_choice_state(pyprophet_view_key, pyprophet_view_options, "Grouped")
+    pyprophet_view_mode = st.radio(
+        "PyProphet parameter view",
+        options=pyprophet_view_options,
+        key=pyprophet_view_key,
+        horizontal=True,
+        help=(
+            "Grouped shows each PyProphet subcommand as its own panel. "
+            "Focused renders one panel at a time and is lighter over remote connections."
+        ),
     )
 
-    if selected_pyprophet_panel == "__matrix__":
-        st.markdown("**⚙️ pyprophet export matrix**")
+    def _current_infer_contexts(cmd_key: str, saved_cmd_cfg: dict) -> list[str]:
+        infer_type = "peptide" if "peptide" in cmd_key else "protein"
+        saved_contexts = _normalize_context_selection(
+            saved_cmd_cfg.get("contexts", saved_cmd_cfg.get("context", "global"))
+        )
+        selected = []
+        for context in PY_INFER_CONTEXTS:
+            widget_key = f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
+            if st.session_state.get(widget_key, context in saved_contexts):
+                selected.append(context)
+        return selected or ["global"]
+
+    def _render_pyprophet_command_panel(
+        cmd_key: str,
+        title: str,
+        cfg: dict,
+        saved_cmd_cfg: dict,
+        show_title: bool = True,
+    ) -> None:
+        cfg_to_render, _, derived_in, derived_out = _prepare_pyprophet_config(
+            cmd_key, cfg
+        )
+        _seed_pyprophet_structured_state(
+            cmd_key,
+            cfg,
+            saved_cmd_cfg,
+            derived_in=derived_in,
+            derived_out=derived_out,
+        )
+
+        if show_title:
+            st.markdown(f"**⚙️ {title}**")
+        ui.render_structured_config(
+            cfg_to_render,
+            key_prefix=f"pyprophet:{cmd_key}",
+            default_open_sections=["io"],
+            autosave=False,
+        )
+
+        if derived_in is not None:
+            st.text_input(
+                "Input file",
+                value=derived_in,
+                disabled=True,
+                key=f"py_in_display_{cmd_key}",
+            )
+        if derived_out is not None:
+            st.text_input(
+                "Output file",
+                value=derived_out,
+                disabled=True,
+                key=f"py_out_display_{cmd_key}",
+            )
+
+        infer_context_values = None
+        if cmd_key in {
+            "pyprophet_infer_peptide_config",
+            "pyprophet_infer_protein_config",
+        }:
+            infer_type = "peptide" if "peptide" in cmd_key else "protein"
+            saved_contexts = _normalize_context_selection(
+                saved_cmd_cfg.get("contexts", saved_cmd_cfg.get("context", "global"))
+            )
+            st.caption("Run this inference separately for each selected context.")
+            ctx_cols = st.columns(len(PY_INFER_CONTEXTS))
+            infer_context_values = []
+            for col, context in zip(ctx_cols, PY_INFER_CONTEXTS):
+                widget_key = f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
+                _seed_checkbox_state(widget_key, context in saved_contexts)
+                if col.checkbox(context, key=widget_key):
+                    infer_context_values.append(context)
+            if not infer_context_values:
+                st.warning(
+                    "At least one inference context should be selected. "
+                    "If left empty, the workflow will fall back to `global`."
+                )
+
+        pyprophet_command_payloads[cmd_key] = _collect_pyprophet_command_payload(
+            cmd_key,
+            cfg,
+            saved_cmd_cfg,
+            derived_in=derived_in,
+            derived_out=derived_out,
+            infer_context_values=infer_context_values,
+        )
+
+    def _seed_pyprophet_matrix_state(saved_cfg: dict) -> None:
+        _seed_multiselect_state(
+            "pyprophet_matrix_levels",
+            PY_MATRIX_LEVELS,
+            saved_cfg.get("levels", PY_MATRIX_LEVELS),
+        )
+        _seed_checkbox_state(
+            "pyprophet_matrix_transition_quantification",
+            saved_cfg.get("transition_quantification", True),
+        )
+        _seed_checkbox_state(
+            "pyprophet_matrix_use_alignment",
+            saved_cfg.get("use_alignment", True),
+        )
+        _seed_checkbox_state(
+            "pyprophet_matrix_consistent_top",
+            saved_cfg.get("consistent_top", True),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_max_transition_pep",
+            float(saved_cfg.get("max_transition_pep", 0.7)),
+        )
+        _seed_choice_state(
+            "pyprophet_matrix_ipf",
+            ["peptidoform", "augmented", "disable"],
+            saved_cfg.get("ipf", "peptidoform"),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_ipf_max_peptidoform_pep",
+            float(saved_cfg.get("ipf_max_peptidoform_pep", 0.4)),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_max_rs_peakgroup_qvalue",
+            float(saved_cfg.get("max_rs_peakgroup_qvalue", 0.05)),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_max_global_peptide_qvalue",
+            float(saved_cfg.get("max_global_peptide_qvalue", 0.01)),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_max_global_protein_qvalue",
+            float(saved_cfg.get("max_global_protein_qvalue", 0.01)),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_max_alignment_pep",
+            float(saved_cfg.get("max_alignment_pep", 0.7)),
+        )
+        _seed_value_state(
+            "pyprophet_matrix_top_n",
+            int(saved_cfg.get("top_n", 3)),
+        )
+        _seed_choice_state(
+            "pyprophet_matrix_normalization",
+            ["none", "median", "medianmedian", "quantile"],
+            saved_cfg.get("normalization", "none"),
+        )
+
+    def _render_pyprophet_matrix_panel(
+        saved_cfg: dict,
+        show_title: bool = True,
+    ) -> None:
+        _seed_pyprophet_matrix_state(saved_cfg)
+
+        if show_title:
+            st.markdown("**⚙️ pyprophet export matrix**")
         st.caption(
             "Export quantification matrices at selected precursor, peptide, and protein levels. "
             "Each selected level writes a fixed output file into the workflow results directory."
         )
 
-        _seed_multiselect_state(
-            "pyprophet_matrix_levels",
-            PY_MATRIX_LEVELS,
-            matrix_saved.get("levels", PY_MATRIX_LEVELS),
-        )
         matrix_levels = st.multiselect(
             "Matrix export levels",
             options=PY_MATRIX_LEVELS,
@@ -1379,19 +1723,19 @@ if cfg_files:
 
         for level in PY_MATRIX_LEVELS:
             if level in matrix_levels:
-                st.caption(f"`{level}` → `{PY_MATRIX_OUTS[level]}`")
+                st.caption(f"`{level}` -> `{PY_MATRIX_OUTS[level]}`")
 
         matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
         matrix_col1.caption("Outputs are written as fixed TSV files.")
-        matrix_transition_quant = matrix_col2.checkbox(
+        matrix_col2.checkbox(
             "Transition quantification",
-            value=matrix_saved.get("transition_quantification", True),
+            value=bool(st.session_state["pyprophet_matrix_transition_quantification"]),
             key="pyprophet_matrix_transition_quantification",
             help="Report aggregated transition-level quantification.",
         )
-        matrix_use_alignment = matrix_col3.checkbox(
+        matrix_col3.checkbox(
             "Use alignment",
-            value=matrix_saved.get("use_alignment", True),
+            value=bool(st.session_state["pyprophet_matrix_use_alignment"]),
             key="pyprophet_matrix_use_alignment",
             help="Recover peaks with good alignment scores if alignment data is present.",
         )
@@ -1399,7 +1743,7 @@ if cfg_files:
         matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
         matrix_col1.number_input(
             "Max transition PEP",
-            value=float(matrix_saved.get("max_transition_pep", 0.7)),
+            value=float(st.session_state["pyprophet_matrix_max_transition_pep"]),
             step=0.05,
             key="pyprophet_matrix_max_transition_pep",
         )
@@ -1407,13 +1751,13 @@ if cfg_files:
             "IPF mode",
             options=["peptidoform", "augmented", "disable"],
             index=["peptidoform", "augmented", "disable"].index(
-                matrix_saved.get("ipf", "peptidoform")
+                st.session_state["pyprophet_matrix_ipf"]
             ),
             key="pyprophet_matrix_ipf",
         )
         matrix_col3.number_input(
             "IPF max peptidoform PEP",
-            value=float(matrix_saved.get("ipf_max_peptidoform_pep", 0.4)),
+            value=float(st.session_state["pyprophet_matrix_ipf_max_peptidoform_pep"]),
             step=0.05,
             key="pyprophet_matrix_ipf_max_peptidoform_pep",
         )
@@ -1421,19 +1765,19 @@ if cfg_files:
         matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
         matrix_col1.number_input(
             "Max run-specific peakgroup q-value",
-            value=float(matrix_saved.get("max_rs_peakgroup_qvalue", 0.05)),
+            value=float(st.session_state["pyprophet_matrix_max_rs_peakgroup_qvalue"]),
             step=0.01,
             key="pyprophet_matrix_max_rs_peakgroup_qvalue",
         )
         matrix_col2.number_input(
             "Max global peptide q-value",
-            value=float(matrix_saved.get("max_global_peptide_qvalue", 0.01)),
+            value=float(st.session_state["pyprophet_matrix_max_global_peptide_qvalue"]),
             step=0.01,
             key="pyprophet_matrix_max_global_peptide_qvalue",
         )
         matrix_col3.number_input(
             "Max global protein q-value",
-            value=float(matrix_saved.get("max_global_protein_qvalue", 0.01)),
+            value=float(st.session_state["pyprophet_matrix_max_global_protein_qvalue"]),
             step=0.01,
             key="pyprophet_matrix_max_global_protein_qvalue",
         )
@@ -1441,20 +1785,20 @@ if cfg_files:
         matrix_col1, matrix_col2, matrix_col3 = st.columns(3)
         matrix_col1.number_input(
             "Max alignment PEP",
-            value=float(matrix_saved.get("max_alignment_pep", 0.7)),
+            value=float(st.session_state["pyprophet_matrix_max_alignment_pep"]),
             step=0.05,
             key="pyprophet_matrix_max_alignment_pep",
         )
         matrix_col2.number_input(
             "Top N features",
             min_value=1,
-            value=int(matrix_saved.get("top_n", 3)),
+            value=int(st.session_state["pyprophet_matrix_top_n"]),
             step=1,
             key="pyprophet_matrix_top_n",
         )
         matrix_col3.checkbox(
             "Consistent top features",
-            value=matrix_saved.get("consistent_top", True),
+            value=bool(st.session_state["pyprophet_matrix_consistent_top"]),
             key="pyprophet_matrix_consistent_top",
             help="Use the same top features across all runs.",
         )
@@ -1463,193 +1807,143 @@ if cfg_files:
             "Normalization",
             options=["none", "median", "medianmedian", "quantile"],
             index=["none", "median", "medianmedian", "quantile"].index(
-                matrix_saved.get("normalization", "none")
+                st.session_state["pyprophet_matrix_normalization"]
             ),
             key="pyprophet_matrix_normalization",
         )
 
-        pyprophet_matrix_payload = {
-            "levels": st.session_state.get("pyprophet_matrix_levels", []),
+    def _collect_pyprophet_matrix_payload(saved_cfg: dict) -> dict:
+        levels = st.session_state.get(
+            "pyprophet_matrix_levels",
+            saved_cfg.get("levels", PY_MATRIX_LEVELS),
+        )
+        return {
+            "levels": [level for level in levels if level in PY_MATRIX_LEVELS],
             "csv": False,
-            "transition_quantification": matrix_transition_quant,
-            "max_transition_pep": st.session_state.get(
-                "pyprophet_matrix_max_transition_pep", 0.7
+            "transition_quantification": st.session_state.get(
+                "pyprophet_matrix_transition_quantification",
+                saved_cfg.get("transition_quantification", True),
             ),
-            "ipf": st.session_state.get("pyprophet_matrix_ipf", "peptidoform"),
+            "max_transition_pep": st.session_state.get(
+                "pyprophet_matrix_max_transition_pep",
+                saved_cfg.get("max_transition_pep", 0.7),
+            ),
+            "ipf": st.session_state.get(
+                "pyprophet_matrix_ipf",
+                saved_cfg.get("ipf", "peptidoform"),
+            ),
             "ipf_max_peptidoform_pep": st.session_state.get(
-                "pyprophet_matrix_ipf_max_peptidoform_pep", 0.4
+                "pyprophet_matrix_ipf_max_peptidoform_pep",
+                saved_cfg.get("ipf_max_peptidoform_pep", 0.4),
             ),
             "max_rs_peakgroup_qvalue": st.session_state.get(
-                "pyprophet_matrix_max_rs_peakgroup_qvalue", 0.05
+                "pyprophet_matrix_max_rs_peakgroup_qvalue",
+                saved_cfg.get("max_rs_peakgroup_qvalue", 0.05),
             ),
             "max_global_peptide_qvalue": st.session_state.get(
-                "pyprophet_matrix_max_global_peptide_qvalue", 0.01
+                "pyprophet_matrix_max_global_peptide_qvalue",
+                saved_cfg.get("max_global_peptide_qvalue", 0.01),
             ),
             "max_global_protein_qvalue": st.session_state.get(
-                "pyprophet_matrix_max_global_protein_qvalue", 0.01
+                "pyprophet_matrix_max_global_protein_qvalue",
+                saved_cfg.get("max_global_protein_qvalue", 0.01),
             ),
-            "use_alignment": matrix_use_alignment,
+            "use_alignment": st.session_state.get(
+                "pyprophet_matrix_use_alignment",
+                saved_cfg.get("use_alignment", True),
+            ),
             "max_alignment_pep": st.session_state.get(
-                "pyprophet_matrix_max_alignment_pep", 0.7
+                "pyprophet_matrix_max_alignment_pep",
+                saved_cfg.get("max_alignment_pep", 0.7),
             ),
-            "top_n": st.session_state.get("pyprophet_matrix_top_n", 3),
+            "top_n": st.session_state.get(
+                "pyprophet_matrix_top_n",
+                saved_cfg.get("top_n", 3),
+            ),
             "consistent_top": st.session_state.get(
-                "pyprophet_matrix_consistent_top", True
+                "pyprophet_matrix_consistent_top",
+                saved_cfg.get("consistent_top", True),
             ),
             "normalization": st.session_state.get(
-                "pyprophet_matrix_normalization", "none"
+                "pyprophet_matrix_normalization",
+                saved_cfg.get("normalization", "none"),
             ),
         }
-    else:
-        selected_entry = next(
-            (
-                entry
-                for entry in cfg_entries
-                if entry[0] == selected_pyprophet_panel
-            ),
-            None,
+
+    if pyprophet_view_mode == "Focused":
+        panel_options = [cmd_key for cmd_key, _, _ in cfg_entries] + ["__matrix__"]
+        panel_labels = {
+            cmd_key: title for cmd_key, title, _ in cfg_entries
+        } | {"__matrix__": "pyprophet export matrix"}
+        _seed_choice_state(
+            "pyprophet_panel_selection",
+            panel_options,
+            panel_options[0] if panel_options else "__matrix__",
         )
-        if selected_entry is not None:
-            cmd_key, title, cfg = selected_entry
-            saved_cmd_cfg_path = (
-                workspace_dir / "tools-configs" / "pyprophet" / f"{cmd_key}.json"
+        selected_pyprophet_panel = st.selectbox(
+            "PyProphet panel",
+            options=panel_options,
+            key="pyprophet_panel_selection",
+            format_func=lambda option: panel_labels.get(option, option),
+            help="Only the selected PyProphet panel is rendered on this page load.",
+        )
+
+        if selected_pyprophet_panel == "__matrix__":
+            _render_pyprophet_matrix_panel(matrix_saved, show_title=True)
+        else:
+            selected_entry = next(
+                (
+                    entry
+                    for entry in cfg_entries
+                    if entry[0] == selected_pyprophet_panel
+                ),
+                None,
             )
-            saved_cmd_cfg = (
-                _load_json_asset(saved_cmd_cfg_path)
-                if saved_cmd_cfg_path.exists()
-                else {}
+            if selected_entry is not None:
+                cmd_key, title, cfg = selected_entry
+                _render_pyprophet_command_panel(
+                    cmd_key,
+                    title,
+                    cfg,
+                    saved_cmd_cfgs.get(cmd_key, {}),
+                    show_title=True,
+                )
+    else:
+        for index, (cmd_key, title, cfg) in enumerate(cfg_entries):
+            with st.expander(f"⚙️ {title}", expanded=index == 0):
+                _render_pyprophet_command_panel(
+                    cmd_key,
+                    title,
+                    cfg,
+                    saved_cmd_cfgs.get(cmd_key, {}),
+                    show_title=False,
+                )
+        with st.expander("⚙️ pyprophet export matrix", expanded=False):
+            _render_pyprophet_matrix_panel(matrix_saved, show_title=False)
+
+    for cmd_key, _, cfg in cfg_entries:
+        if cmd_key in pyprophet_command_payloads:
+            continue
+        _, _, derived_in, derived_out = _prepare_pyprophet_config(cmd_key, cfg)
+        infer_context_values = None
+        if cmd_key in {
+            "pyprophet_infer_peptide_config",
+            "pyprophet_infer_protein_config",
+        }:
+            infer_context_values = _current_infer_contexts(
+                cmd_key,
+                saved_cmd_cfgs.get(cmd_key, {}),
             )
-            st.markdown(f"**⚙️ {title}**")
+        pyprophet_command_payloads[cmd_key] = _collect_pyprophet_command_payload(
+            cmd_key,
+            cfg,
+            saved_cmd_cfgs.get(cmd_key, {}),
+            derived_in=derived_in,
+            derived_out=derived_out,
+            infer_context_values=infer_context_values,
+        )
 
-            cfg_to_render = dict(cfg)
-            try:
-                cmd_name = cfg.get("meta", {}).get("command", "")
-            except Exception:
-                cmd_name = ""
-
-            if "export" in cmd_name.lower() or "export" in cmd_key.lower():
-                sections = cfg_to_render.get("sections", {})
-                if "alignment" in sections:
-                    sections.pop("alignment", None)
-                    cfg_to_render["sections"] = sections
-
-            infer_context_values: list[str] = []
-            if cmd_key in {
-                "pyprophet_infer_peptide_config",
-                "pyprophet_infer_protein_config",
-            }:
-                sections = cfg_to_render.get("sections", {})
-                context_section = sections.get("inference_context", {})
-                context_options = context_section.get("options", {})
-                context_options.pop("context", None)
-                if context_options:
-                    context_section["options"] = context_options
-                    sections["inference_context"] = context_section
-                else:
-                    sections.pop("inference_context", None)
-                cfg_to_render["sections"] = sections
-
-            derived_in = None
-            derived_out = None
-            low_cmd = cmd_key.lower()
-            if (
-                "score" in low_cmd
-                or "infer" in low_cmd
-                or "score" in cmd_name.lower()
-                or "infer" in cmd_name.lower()
-            ):
-                derived_in = "openswath_results.osw"
-            if "export" in low_cmd or "export" in cmd_name.lower():
-                derived_in = "openswath_results.osw"
-                derived_out = "openswath_results.tsv"
-
-            if (derived_in is not None) or (derived_out is not None):
-                try:
-                    io_opts = (
-                        cfg_to_render.get("sections", {})
-                        .get("io", {})
-                        .get("options", {})
-                    )
-                    io_opts.pop("in", None)
-                    io_opts.pop("out", None)
-                    if "io" in cfg_to_render.get("sections", {}):
-                        cfg_to_render["sections"]["io"]["options"] = io_opts
-                except Exception:
-                    pass
-
-            ui.render_structured_config(
-                cfg_to_render,
-                key_prefix=f"pyprophet:{cmd_key}",
-                default_open_sections=["io"],
-                autosave=False,
-            )
-
-            if derived_in is not None:
-                full_in = f"{PPFX}pyprophet:{cmd_key}:io:in"
-                st.text_input(
-                    "Input file",
-                    value=derived_in,
-                    disabled=True,
-                    key=f"py_in_display_{cmd_key}",
-                )
-                st.session_state[full_in] = derived_in
-            if derived_out is not None:
-                full_out = f"{PPFX}pyprophet:{cmd_key}:io:out"
-                st.text_input(
-                    "Output file",
-                    value=derived_out,
-                    disabled=True,
-                    key=f"py_out_display_{cmd_key}",
-                )
-                st.session_state[full_out] = derived_out
-
-            if cmd_key in {
-                "pyprophet_infer_peptide_config",
-                "pyprophet_infer_protein_config",
-            }:
-                infer_type = "peptide" if "peptide" in cmd_key else "protein"
-                saved_contexts = _normalize_context_selection(
-                    saved_cmd_cfg.get(
-                        "contexts",
-                        saved_cmd_cfg.get("context", "global"),
-                    )
-                )
-                st.caption("Run this inference separately for each selected context.")
-                ctx_cols = st.columns(len(PY_INFER_CONTEXTS))
-                for col, context in zip(ctx_cols, PY_INFER_CONTEXTS):
-                    widget_key = (
-                        f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
-                    )
-                    _seed_checkbox_state(widget_key, context in saved_contexts)
-                    if col.checkbox(context, key=widget_key):
-                        infer_context_values.append(context)
-                if not infer_context_values:
-                    st.warning(
-                        "At least one inference context should be selected. "
-                        "If left empty, the workflow will fall back to `global`."
-                    )
-
-            out_dict = {}
-            for section_name, section_def in cfg_to_render.get("sections", {}).items():
-                opts = section_def.get("options", {})
-                for opt_name, opt_def in opts.items():
-                    full = f"{PPFX}pyprophet:{cmd_key}:{section_name}:{opt_name}"
-                    v = st.session_state.get(full, None)
-                    if isinstance(v, str):
-                        try:
-                            parsed = json.loads(v)
-                            out_dict[opt_name] = parsed
-                        except Exception:
-                            out_dict[opt_name] = v
-                    else:
-                        out_dict[opt_name] = v
-            if cmd_key in {
-                "pyprophet_infer_peptide_config",
-                "pyprophet_infer_protein_config",
-            }:
-                out_dict.pop("context", None)
-                out_dict["contexts"] = infer_context_values or ["global"]
-            pyprophet_command_payloads[cmd_key] = out_dict
+    pyprophet_matrix_payload = _collect_pyprophet_matrix_payload(matrix_saved)
 else:
     st.info("No structured PyProphet schemas found — falling back to built-in UI.")
     try:
@@ -1896,6 +2190,18 @@ with save_col:
                 _write_json_if_changed(pyprophet_dir / f"{cmd_key}.json", payload)
             if pyprophet_matrix_payload is not None:
                 _write_json_if_changed(matrix_cfg_path, pyprophet_matrix_payload)
+            if pyprophet_command_payloads:
+                st.info(
+                    "Saved PyProphet subcommand configs to workspace: "
+                    f"`{pyprophet_dir}`"
+                )
+            if pyprophet_matrix_payload is not None:
+                matrix_levels = pyprophet_matrix_payload.get("levels", [])
+                st.info(
+                    "Saved PyProphet matrix export config: "
+                    f"`{matrix_cfg_path}` "
+                    f"(levels: {', '.join(matrix_levels) if matrix_levels else 'none'})"
+                )
         except Exception as _e:
             st.warning(f"Could not save PyProphet config: {_e}")
         st.success(f"Saved workspace parameters to `{pm.params_file}`.")
