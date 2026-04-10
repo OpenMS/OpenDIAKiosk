@@ -679,6 +679,128 @@ def _build_baseline_overlap_summary(
     return pd.DataFrame(rows)
 
 
+def _build_unique_identification_origin_summary(
+    set_map: dict[str, set[str]],
+    library_set_map: dict[str, set[str]],
+) -> pd.DataFrame:
+    if not set_map or set(set_map.keys()) != set(library_set_map.keys()):
+        return pd.DataFrame()
+
+    rows: list[dict[str, Any]] = []
+    for experiment_name, entity_ids in set_map.items():
+        other_identified_ids: set[str] = set()
+        other_library_ids: set[str] = set()
+        for other_name, other_ids in set_map.items():
+            if other_name == experiment_name:
+                continue
+            other_identified_ids |= other_ids
+            other_library_ids |= library_set_map[other_name]
+
+        unique_identified_ids = entity_ids - other_identified_ids
+        library_unique_count = sum(
+            1 for entity_id in unique_identified_ids if entity_id not in other_library_ids
+        )
+        library_shared_missed_count = len(unique_identified_ids) - library_unique_count
+        unique_identified_count = len(unique_identified_ids)
+        rows.append(
+            {
+                "experiment_name": experiment_name,
+                "unique_identified_count": unique_identified_count,
+                "library_unique_count": library_unique_count,
+                "library_shared_missed_count": library_shared_missed_count,
+                "library_unique_pct": (
+                    100.0 * library_unique_count / unique_identified_count
+                    if unique_identified_count
+                    else 0.0
+                ),
+                "library_shared_missed_pct": (
+                    100.0 * library_shared_missed_count / unique_identified_count
+                    if unique_identified_count
+                    else 0.0
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _unique_identification_origin_figure(
+    summary_df: pd.DataFrame,
+    entity_label: str,
+    title: str,
+) -> go.Figure:
+    fig = go.Figure()
+    if summary_df.empty:
+        fig.update_layout(
+            template="plotly_white",
+            title=title,
+            xaxis_title="Experiment",
+            yaxis_title=f"# uniquely identified {entity_label}",
+        )
+        return fig
+
+    customdata = summary_df[
+        [
+            "experiment_name",
+            "unique_identified_count",
+            "library_unique_count",
+            "library_shared_missed_count",
+            "library_unique_pct",
+            "library_shared_missed_pct",
+        ]
+    ].to_numpy()
+    fig.add_trace(
+        go.Bar(
+            x=summary_df["experiment_name"],
+            y=summary_df["library_unique_count"],
+            name="Absent from all other libraries",
+            marker=dict(color="#94A3B8"),
+            customdata=customdata,
+            hovertemplate=(
+                "Experiment=%{customdata[0]}<br>"
+                "Unique identified=%{customdata[1]}<br>"
+                "Absent from all other libraries=%{customdata[2]}<br>"
+                "Share of unique IDs=%{customdata[4]:.1f}%<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=summary_df["experiment_name"],
+            y=summary_df["library_shared_missed_count"],
+            name="Present in other libraries, not identified elsewhere",
+            marker=dict(color="#F59E0B"),
+            customdata=customdata,
+            hovertemplate=(
+                "Experiment=%{customdata[0]}<br>"
+                "Unique identified=%{customdata[1]}<br>"
+                "Present in other libraries, not identified elsewhere=%{customdata[3]}<br>"
+                "Share of unique IDs=%{customdata[5]:.1f}%<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        template="plotly_white",
+        title=title,
+        barmode="stack",
+        xaxis_title="Experiment",
+        yaxis_title=f"# uniquely identified {entity_label}",
+        legend_title_text="Unique ID origin",
+        margin=dict(l=20, r=20, t=60, b=80),
+    )
+    fig.update_xaxes(tickangle=-25)
+    for row in summary_df.itertuples(index=False):
+        fig.add_annotation(
+            x=row.experiment_name,
+            y=row.unique_identified_count,
+            text=str(int(row.unique_identified_count)),
+            showarrow=False,
+            yshift=12,
+            font=dict(size=13, color="#111827"),
+        )
+    return fig
+
+
 def _baseline_overlap_figure(
     overlap_df: pd.DataFrame,
     baseline_name: str,
@@ -1467,13 +1589,13 @@ baseline_display_name = next(
 st.markdown("---")
 st.subheader("4. Library Targets")
 
+library_target_map: dict[str, dict[str, set[str]]] = {}
 library_experiments = [
     experiment for experiment in selected_experiments if experiment["files"]["pqp"]
 ]
 if len(library_experiments) < 2:
     st.info("At least two selected experiments need a PQP file for the library comparison section.")
 else:
-    library_target_map: dict[str, dict[str, set[str]]] = {}
     for experiment in library_experiments:
         loaded = _load_library_targets(
             experiment["files"]["pqp"],
@@ -1723,6 +1845,59 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                     title=f"Identification overlap vs {level_baseline_name}",
                 ),
                 use_container_width=True,
+            )
+
+        unique_origin_library_map = {
+            experiment_name: library_target_map[experiment_name][level]
+            for experiment_name in prepared_map
+            if experiment_name in library_target_map
+        }
+        unique_origin_col_a, unique_origin_col_b = st.columns(2)
+        if set(unique_origin_library_map.keys()) != set(prepared_map.keys()):
+            missing_library_names = [
+                experiment_name
+                for experiment_name in prepared_map
+                if experiment_name not in unique_origin_library_map
+            ]
+            unique_origin_col_a.info(
+                "Unique-identification attribution needs a PQP library for every compared experiment at this level."
+            )
+            if missing_library_names:
+                unique_origin_col_b.caption(
+                    "Missing library support for: "
+                    + ", ".join(f"`{name}`" for name in missing_library_names)
+                )
+        else:
+            unique_origin_df = _build_unique_identification_origin_summary(
+                set_map,
+                unique_origin_library_map,
+            )
+            unique_origin_col_a.plotly_chart(
+                _unique_identification_origin_figure(
+                    unique_origin_df,
+                    entity_label=entity_label,
+                    title=f"Origin of uniquely identified {entity_label}",
+                ),
+                use_container_width=True,
+            )
+            unique_origin_col_b.dataframe(
+                unique_origin_df.rename(
+                    columns={
+                        "experiment_name": "Experiment",
+                        "unique_identified_count": "Unique identified",
+                        "library_unique_count": "Absent from other libraries",
+                        "library_shared_missed_count": "Present in other libraries",
+                        "library_unique_pct": "% absent from other libraries",
+                        "library_shared_missed_pct": "% present in other libraries",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            unique_origin_col_b.caption(
+                "Unique identified entities are those found in only one experiment result set. "
+                "The breakdown separates library-exclusive analytes from analytes that were available "
+                "in other libraries but not identified there."
             )
 
         quant_col_a, quant_col_b = st.columns(2)
