@@ -118,6 +118,11 @@ if __name__ == "__main__":
                 title="XIC Chromatogram Viewer",
                 icon="📊",
             ),
+            st.Page(
+                Path("content", "openswath_results_comparison.py"),
+                title="Results Comparison",
+                icon="🧪",
+            ),
         ],
         "Others": [
             st.Page(
