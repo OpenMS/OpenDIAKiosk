@@ -221,7 +221,9 @@ def _sync_osw_ini_from_current_state() -> tuple[bool, Path, Path | None, int, di
                 if ini_key not in ini_keys:
                     continue
                 ini_value = param.getValue(ini_key)
-                param.setValue(ini_key, pm._coerce_topp_value(ini_value, value))
+                coerced_value = pm._coerce_topp_value(ini_value, value)
+                if ini_value != coerced_value:
+                    param.setValue(ini_key, coerced_value)
             poms.ParamXMLFile().store(str(dest), param)
             synced = True
         except Exception:

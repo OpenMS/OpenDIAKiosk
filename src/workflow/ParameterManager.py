@@ -96,7 +96,9 @@ class ParameterManager:
                     if ini_key not in ini_keys:
                         continue
                     ini_value = param.getValue(ini_key)
-                    param.setValue(ini_key, self._coerce_topp_value(ini_value, value))
+                    coerced_value = self._coerce_topp_value(ini_value, value)
+                    if ini_value != coerced_value:
+                        param.setValue(ini_key, coerced_value)
                 poms.ParamXMLFile().store(str(tmp_path), param)
 
             tmp_path.replace(target_path)
