@@ -42,6 +42,7 @@ saved_params_cache = pm.get_parameters_from_json()
 # Convenience prefixes
 TPFX = pm.topp_param_prefix  # e.g. "<ws>-TOPP-"
 PPFX = pm.param_prefix  # e.g. "<ws>-param-"
+OSW_DRAFT_KEY = f"{workspace_dir.resolve()}::OpenSwathWorkflow::draft_values"
 
 # -----------------------------------------------------------------------------
 # Asset / ini directories
@@ -147,13 +148,25 @@ def _collect_current_osw_values() -> dict[str, object]:
     return values
 
 
+def _osw_draft_values() -> dict[str, object]:
+    draft = st.session_state.get(OSW_DRAFT_KEY, {})
+    return draft.copy() if isinstance(draft, dict) else {}
+
+
 def _collect_saved_and_current_osw_values() -> dict[str, object]:
     saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
     merged_values = (
         saved_tool_params.copy() if isinstance(saved_tool_params, dict) else {}
     )
+    merged_values.update(_osw_draft_values())
     merged_values.update(_collect_current_osw_values())
     return merged_values
+
+
+def _store_current_osw_draft() -> None:
+    current_values = _collect_current_osw_values()
+    if current_values:
+        st.session_state[OSW_DRAFT_KEY] = _collect_saved_and_current_osw_values()
 
 
 def _read_ini_short_values(
@@ -1463,11 +1476,14 @@ else:
             "Focused renders one top-level section at a time and is lighter on memory."
         ),
     )
+    osw_draft_values = _osw_draft_values()
     ui.input_TOPP(
         "OpenSwathWorkflow",
         num_cols=3,
         display_tool_name=False,
         display_subsections=True,
+        custom_defaults=osw_draft_values,
+        custom_defaults_override_saved=bool(osw_draft_values),
         lazy_grouped_top_level_sections=(osw_param_view_mode == "Grouped"),
         lazy_top_level_sections=(osw_param_view_mode == "Focused"),
         lazy_top_level_label="OpenSwathWorkflow parameter group",
@@ -1489,6 +1505,7 @@ else:
         ],
         autosave=False,
     )
+    _store_current_osw_draft()
 
 # -----------------------------------------------------------------------------
 # SECTION 4 — PyProphet (JSON-driven)
@@ -1978,6 +1995,9 @@ with save_col:
         # execution page needs to read (session_state only is not enough
         # because the WorkflowManager runs in a subprocess with no session_state).
         _extra = pm.get_parameters_from_json()
+        _osw_values = _collect_saved_and_current_osw_values()
+        if _osw_values:
+            _extra.setdefault("OpenSwathWorkflow", {}).update(_osw_values)
         _extra["osag_input_mode"] = st.session_state.get(
             "osag_input_mode", "Use existing transition list(s)"
         )

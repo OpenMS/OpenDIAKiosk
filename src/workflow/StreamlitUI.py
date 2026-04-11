@@ -700,7 +700,8 @@ class StreamlitUI:
         display_tool_name: bool = True,
         display_subsections: bool = True,
         display_subsection_tabs: bool = False,
-        custom_defaults: dict = {},
+        custom_defaults: dict | None = None,
+        custom_defaults_override_saved: bool = False,
         autosave: bool = True,
         lazy_grouped_top_level_sections: bool = False,
         lazy_top_level_sections: bool = False,
@@ -721,6 +722,7 @@ class StreamlitUI:
             display_subsection_tabs (bool, optional): Whether to display main subsections in separate tabs (if more than one main section). Defaults to False.
             custom_defaults (dict, optional): Dictionary of custom defaults to use. Defaults to an empty dict.
         """
+        custom_defaults = custom_defaults or {}
 
         if not display_subsections:
             display_subsection_tabs = False
@@ -879,7 +881,9 @@ class StreamlitUI:
         # else check if the parameter is already in params.json, if yes take the saved value
         for p in params:
             name = p["key"].split(":1:")[1]
-            if topp_tool_name in current_params:
+            if custom_defaults_override_saved and name in custom_defaults:
+                p["value"] = custom_defaults[name]
+            elif topp_tool_name in current_params:
                 if name in current_params[topp_tool_name]:
                     p["value"] = current_params[topp_tool_name][name]
                 elif name in custom_defaults:
