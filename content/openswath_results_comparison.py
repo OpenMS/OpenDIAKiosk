@@ -523,6 +523,45 @@ def _build_presence_summary(set_map: dict[str, set[str]]) -> tuple[pd.DataFrame,
     return pd.DataFrame(rows), union_count
 
 
+def _build_library_example_analyte_table(
+    set_map: dict[str, set[str]],
+    max_examples_per_group: int = 8,
+) -> pd.DataFrame:
+    if not set_map:
+        return pd.DataFrame()
+
+    experiment_names = list(set_map.keys())
+    all_sets = [set(ids) for ids in set_map.values()]
+    shared_all = set.intersection(*all_sets) if all_sets else set()
+
+    rows: list[dict[str, str]] = []
+    for analyte_id in sorted(shared_all)[:max_examples_per_group]:
+        rows.append(
+            {
+                "Category": "Shared by all libraries",
+                "Experiment": "All selected libraries",
+                "Analyte": analyte_id,
+            }
+        )
+
+    for experiment_name in experiment_names:
+        other_ids: set[str] = set()
+        for other_name, entity_ids in set_map.items():
+            if other_name != experiment_name:
+                other_ids |= entity_ids
+        unique_ids = set_map[experiment_name] - other_ids
+        for analyte_id in sorted(unique_ids)[:max_examples_per_group]:
+            rows.append(
+                {
+                    "Category": "Unique to one library",
+                    "Experiment": experiment_name,
+                    "Analyte": analyte_id,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 def _union_bar_figure(
     summary_df: pd.DataFrame,
     entity_label: str,
@@ -1696,6 +1735,23 @@ else:
                             "baseline_overlap_pct": f"% of {library_baseline_name}",
                         }
                     ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.markdown("##### Example shared and unique analytes")
+            example_df = _build_library_example_analyte_table(set_map)
+            if example_df.empty:
+                st.info(
+                    f"No shared-by-all or experiment-unique {entity_label} examples were found at this level."
+                )
+            else:
+                st.caption(
+                    "Shared examples are present in every selected library. "
+                    "Unique examples are present in exactly one selected library."
+                )
+                st.dataframe(
+                    example_df,
                     use_container_width=True,
                     hide_index=True,
                 )
