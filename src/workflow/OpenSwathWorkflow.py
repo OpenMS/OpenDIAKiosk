@@ -507,6 +507,7 @@ class OpenSwathWorkflow(WorkflowManager):
                 "in": [in_file],
                 "out": [out_file],
             },
+            include_saved_params=False,
         )
 
     def _run_osdg(self, in_file: str, out_file: str) -> bool:
@@ -518,6 +519,7 @@ class OpenSwathWorkflow(WorkflowManager):
                 "in": [in_file],
                 "out": [out_file],
             },
+            include_saved_params=False,
         )
 
     def _run_openswath(
@@ -571,6 +573,7 @@ class OpenSwathWorkflow(WorkflowManager):
             input_output=command_inputs,
             custom_params=custom_params,
             cwd=str(results_dir_abs),
+            include_saved_params=False,
         )
 
     def _run_pyprophet(self, osw_in: str, tsv_out: str, results_dir: Path) -> bool:

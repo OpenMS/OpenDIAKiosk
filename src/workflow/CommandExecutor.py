@@ -145,6 +145,8 @@ class CommandExecutor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,  # Line buffered
                 universal_newlines=True,
                 cwd=cwd,
@@ -385,6 +387,7 @@ class CommandExecutor:
         input_output: dict,
         custom_params: dict = {},
         cwd: str | None = None,
+        include_saved_params: bool = True,
     ) -> bool:
         """
         Constructs and executes commands for the specified tool OpenMS TOPP tool based on the given
@@ -403,6 +406,9 @@ class CommandExecutor:
             tool (str): The executable name or path of the tool.
             input_output (dict): A dictionary specifying the input/output parameter names (as key) and their corresponding file paths (as value).
             custom_params (dict): A dictionary of custom parameters to pass to the tool.
+            include_saved_params (bool): Whether to append saved non-default
+                params.json values to the CLI. Set this to False when the
+                synced INI should be the source of truth for TOPP parameters.
 
         Returns:
             bool: True if all commands succeeded, False if any failed.
@@ -463,7 +469,7 @@ class CommandExecutor:
             }
 
             # Add non-default TOPP tool parameters
-            if tool in params.keys():
+            if include_saved_params and tool in params.keys():
                 for k, v in params[tool].items():
                     if k in managed_params:
                         continue
