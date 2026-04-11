@@ -90,7 +90,7 @@
           ],
           "value_type": "string",
           "required": false,
-          "default": "XGBoost",
+          "default": "SVM",
           "allowed_values": [
             "LDA",
             "SVM",
@@ -98,7 +98,7 @@
             "HistGradientBoosting"
           ],
           "description": "Classifier used for semi-supervised learning.",
-          "value": "XGBoost",
+          "value": "SVM",
           "is_set": false
         },
         "autotune": {
