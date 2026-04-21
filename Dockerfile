@@ -11,9 +11,6 @@ FROM ubuntu:22.04 AS setup-build-system
 ARG OPENMS_REPO=https://github.com/OpenMS/OpenMS.git
 ARG OPENMS_BRANCH=release/3.5.0
 ARG PORT=8501
-# GitHub token to download latest OpenMS executable for Windows from Github action artifact.
-ARG GITHUB_TOKEN
-ENV GH_TOKEN=${GITHUB_TOKEN}
 # Streamlit app Gihub user name (to download artifact from).
 ARG GITHUB_USER=OpenMS
 # Streamlit app Gihub repository name (to download artifact from).
@@ -51,7 +48,7 @@ RUN wget -q \
 RUN mamba --version
 
 # Setup mamba environment.
-RUN mamba create -n streamlit-env python=3.10
+RUN mamba create -n streamlit-env python=3.11
 RUN echo "mamba activate streamlit-env" >> ~/.bashrc
 SHELL ["/bin/bash", "--rcfile", "~/.bashrc"]
 SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
@@ -227,12 +224,14 @@ RUN mamba run -n streamlit-env python hooks/hook-analytics.py
 # Set Online Deployment
 RUN jq '.online_deployment = true' settings.json > tmp.json && mv tmp.json settings.json
 
-# Download latest OpenMS App executable as a ZIP file
-RUN if [ -n "$GH_TOKEN" ]; then \
-        echo "GH_TOKEN is set, proceeding to download the release asset..."; \
+# Download latest OpenMS App executable as a ZIP file.
+# ARG declared here (not at the top) — otherwise the per-run token busts the cache.
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+        echo "GITHUB_TOKEN is set, proceeding to download the release asset..."; \
         gh release download -R ${GITHUB_USER}/${GITHUB_REPO} -p "OpenMS-App.zip" -D /app; \
     else \
-        echo "GH_TOKEN is not set, skipping the release asset download."; \
+        echo "GITHUB_TOKEN is not set, skipping the release asset download."; \
     fi
 
 
