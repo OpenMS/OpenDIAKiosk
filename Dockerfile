@@ -7,7 +7,7 @@
 # debug container after build (comment out ENTRYPOINT) and run container with interactive /bin/bash shell
 # prune unused images/etc. to free disc space (e.g. might be needed on gitpod). Use with care.: docker system prune --all --force
 
-FROM ubuntu:22.04 AS setup-build-system
+FROM ubuntu:24.04 AS setup-build-system
 # ARG OPENMS_REPO=https://github.com/OpenMS/OpenMS.git
 # ARG OPENMS_BRANCH=release/3.5.0
 ARG OPENMS_REPO=https://github.com/singjc/OpenMS.git
