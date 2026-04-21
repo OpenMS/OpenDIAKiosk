@@ -33,14 +33,21 @@ RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-da
 RUN apt-get install -y --no-install-recommends --no-install-suggests qt6-base-dev libqt6svg6-dev libqt6opengl6-dev libqt6openglwidgets6 libgl-dev
 
 RUN set -eux; \
-    apt-get update; \
-    wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
-      https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
-    apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends libparquet-dev; \
-    rm -f /tmp/apache-arrow-apt-source-latest-noble.deb; \
-    rm -rf /var/lib/apt/lists/*
+        apt-get update; \
+        wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
+            https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
+        apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
+        apt-get update; \
+        # Pin Arrow 23: find a libparquet-dev candidate that starts with 23.
+        ARROW_VER=$(apt-cache madison libparquet-dev | awk '{print $3}' | grep -E '^23\.' | head -n1) || true; \
+        if [ -z "$ARROW_VER" ]; then \
+                echo "ERROR: no libparquet-dev 23.* available from apt source"; \
+                apt-cache madison libparquet-dev || true; \
+                exit 1; \
+        fi; \
+        apt-get install -y --no-install-recommends libparquet-dev="$ARROW_VER" libarrow-dev="$ARROW_VER"; \
+        rm -f /tmp/apache-arrow-apt-source-latest-noble.deb; \
+        rm -rf /var/lib/apt/lists/*
 
 # Install Github CLI
 RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
