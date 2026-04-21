@@ -17,7 +17,6 @@ pages = [
     "Developers Guide: TOPP Workflow Framework",
     "Developer Guide: Windows Executables",
     "Developers Guide: Deployment",
-    "Developers Guide: Kubernetes Deployment",
 ]
 page = cols[0].selectbox(
     "**Content**",
@@ -107,13 +106,4 @@ This guide explains how to package OpenMS apps into Windows executables using tw
 if page == pages[5]:
     with open(Path("docs", "deployment.md"), "r", encoding="utf-8") as f:
         content = f.read()
-    st.markdown(content)
-
-#############################################################################################
-# Kubernetes Deployment
-#############################################################################################
-
-if page == pages[6]:
-    with open(Path("docs", "kubernetes-deployment.md"), "r", encoding="utf-8") as f:
-        content = f.read()
-    st.markdown(content)
+    st.markdown(content) 
