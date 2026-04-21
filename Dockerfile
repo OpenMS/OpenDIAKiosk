@@ -100,22 +100,35 @@ WORKDIR /openms-build
 RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON -DWITH_UV=OFF -WPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python ../OpenMS -DPY_MEMLEAK_DISABLE=On"
 
 # Build TOPP tools and clean up.
-RUN make -j4 TOPP
+RUN make -j4 OpenSwathAssayGenerator OpenSwathDecoyGenerator OpenSwathWorkflow
 RUN rm -rf src doc CMakeFiles
 
-# Build pyOpenMS wheels and install via pip.
+# Build pyOpenMS and produce a repairable wheel using the CMake packaging target.
 RUN make -j4 pyopenms
 WORKDIR /openms-build/pyOpenMS
-# Install built pyOpenMS wheel if present; otherwise print diagnostics and fail.
+
+# Package pyOpenMS as a wheel via the `pyopenms_wheel` CMake target (writes to /openms-build/pyopenms_wheels/),
+# then repair the wheel with `auditwheel` and install the repaired wheel into the build python env.
 RUN set -eux; \
-    cd /openms-build/pyOpenMS; \
-    echo "Listing workdir:"; ls -la . || true; \
-    echo "Listing dist/ if present:"; ls -la dist || true; \
-    if compgen -G "dist/*.whl" > /dev/null; then \
-        pip install dist/*.whl; \
+    cd /openms-build; \
+    echo "Invoking CMake pyopenms_wheel target to package wheel..."; \
+    cmake --build . --target pyopenms_wheel || true; \
+    echo "Wheel directory listing (pyopenms_wheels):"; ls -la pyopenms_wheels || true; \
+    PY=/root/miniforge3/envs/streamlit-env/bin/python; \
+    echo "Installing wheel tooling into build python..."; \
+    $PY -m pip install --no-cache-dir -U pip build auditwheel || true; \
+    if compgen -G "pyopenms_wheels/*.whl" > /dev/null; then \
+        echo "Found built wheel(s) in pyopenms_wheels, repairing with auditwheel..."; \
+        mkdir -p /openms-build/pyopenms_wheels_repaired; \
+        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl || true; \
+        echo "Repaired wheels:"; ls -la /openms-build/pyopenms_wheels_repaired || true; \
+        $PY -m pip install /openms-build/pyopenms_wheels_repaired/*.whl; \
+    elif compgen -G "pyOpenMS/dist/*.whl" > /dev/null; then \
+        echo "Found legacy dist wheel, installing..."; \
+        $PY -m pip install pyOpenMS/dist/*.whl; \
     else \
-        echo "ERROR: no pyOpenMS wheel found in /openms-build/pyOpenMS/dist"; \
-        echo "Searching for any .whl in build tree:"; find /openms-build -maxdepth 4 -type f -name '*.whl' -print || true; \
+        echo "ERROR: no pyopenms wheel found in pyopenms_wheels or pyOpenMS/dist"; \
+        echo "Full build tree .whl search:"; find /openms-build -type f -name '*.whl' -print || true; \
         false; \
     fi
 
