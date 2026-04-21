@@ -25,11 +25,11 @@ RUN apt-get -y update
 RUN apt-get install -y --no-install-recommends --no-install-suggests g++ autoconf automake patch libtool make git gpg wget ca-certificates curl jq libgtk2.0-dev openjdk-8-jdk cron
 RUN update-ca-certificates
 RUN apt-get install -y --no-install-recommends --no-install-suggests libsvm-dev libeigen3-dev coinor-libcbc-dev libglpk-dev libzip-dev zlib1g-dev libxerces-c-dev libbz2-dev libomp-dev libhdf5-dev
-RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-date-time1.74-dev \
-                                                                     libboost-iostreams1.74-dev \
-                                                                     libboost-regex1.74-dev \
-                                                                     libboost-math1.74-dev \
-                                                                     libboost-random1.74-dev
+RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-date-time1.83-dev \
+                                                                     libboost-iostreams1.83-dev \
+                                                                     libboost-regex1.83-dev \
+                                                                     libboost-math1.83-dev \
+                                                                     libboost-random1.83-dev
 RUN apt-get install -y --no-install-recommends --no-install-suggests qt6-base-dev libqt6svg6-dev libqt6opengl6-dev libqt6openglwidgets6 libgl-dev
 
 # Install Github CLI
