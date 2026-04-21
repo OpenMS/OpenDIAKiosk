@@ -32,6 +32,16 @@ RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-da
                                                                      libboost-random1.83-dev
 RUN apt-get install -y --no-install-recommends --no-install-suggests qt6-base-dev libqt6svg6-dev libqt6opengl6-dev libqt6openglwidgets6 libgl-dev
 
+RUN set -eux; \
+    apt-get update; \
+    wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
+      https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
+    apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libparquet-dev; \
+    rm -f /tmp/apache-arrow-apt-source-latest-noble.deb; \
+    rm -rf /var/lib/apt/lists/*
+
 # Install Github CLI
 RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
 	&& mkdir -p -m 755 /etc/apt/keyrings \
