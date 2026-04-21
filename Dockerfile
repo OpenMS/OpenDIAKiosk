@@ -100,13 +100,24 @@ WORKDIR /openms-build
 RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON -DWITH_UV=OFF -WPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python ../OpenMS -DPY_MEMLEAK_DISABLE=On"
 
 # Build TOPP tools and clean up.
-RUN make -j14 TOPP
+RUN make -j4 TOPP
 RUN rm -rf src doc CMakeFiles
 
 # Build pyOpenMS wheels and install via pip.
-RUN make -j14 pyopenms
+RUN make -j4 pyopenms
 WORKDIR /openms-build/pyOpenMS
-RUN pip install dist/*.whl
+# Install built pyOpenMS wheel if present; otherwise print diagnostics and fail.
+RUN set -eux; \
+    cd /openms-build/pyOpenMS; \
+    echo "Listing workdir:"; ls -la . || true; \
+    echo "Listing dist/ if present:"; ls -la dist || true; \
+    if compgen -G "dist/*.whl" > /dev/null; then \
+        pip install dist/*.whl; \
+    else \
+        echo "ERROR: no pyOpenMS wheel found in /openms-build/pyOpenMS/dist"; \
+        echo "Searching for any .whl in build tree:"; find /openms-build -maxdepth 4 -type f -name '*.whl' -print || true; \
+        false; \
+    fi
 
 # Install other dependencies (excluding pyopenms)
 COPY requirements.txt ./requirements.txt 
