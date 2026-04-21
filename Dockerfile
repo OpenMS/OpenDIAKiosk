@@ -8,8 +8,10 @@
 # prune unused images/etc. to free disc space (e.g. might be needed on gitpod). Use with care.: docker system prune --all --force
 
 FROM ubuntu:22.04 AS setup-build-system
-ARG OPENMS_REPO=https://github.com/OpenMS/OpenMS.git
-ARG OPENMS_BRANCH=release/3.5.0
+# ARG OPENMS_REPO=https://github.com/OpenMS/OpenMS.git
+# ARG OPENMS_BRANCH=release/3.5.0
+ARG OPENMS_REPO=https://github.com/singjc/OpenMS.git
+ARG OPENMS_BRANCH=for/opendiakiosk
 ARG PORT=8501
 # Streamlit app Gihub user name (to download artifact from).
 ARG GITHUB_USER=OpenMS
@@ -81,11 +83,11 @@ WORKDIR /openms-build
 RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON ../OpenMS -DPY_MEMLEAK_DISABLE=On"
 
 # Build TOPP tools and clean up.
-RUN make -j4 TOPP
+RUN make -j14 TOPP
 RUN rm -rf src doc CMakeFiles
 
 # Build pyOpenMS wheels and install via pip.
-RUN make -j4 pyopenms
+RUN make -j14 pyopenms
 WORKDIR /openms-build/pyOpenMS
 RUN pip install dist/*.whl
 
@@ -139,6 +141,10 @@ COPY app.py /app/app.py
 COPY settings.json /app/settings.json
 COPY default-parameters.json /app/default-parameters.json
 COPY presets.json /app/presets.json
+COPY data /app/data
+
+# Set environment variable for Redeem pretrain models
+ENV REDEEM_PRETRAINED_MODELS_DIR=/app/data/pretrained_models
 
 # For streamlit configuration
 COPY .streamlit/ /app/.streamlit/
