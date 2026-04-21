@@ -107,20 +107,19 @@ RUN rm -rf src doc CMakeFiles
 RUN make -j4 pyopenms
 WORKDIR /openms-build/pyOpenMS
 
-# Package pyOpenMS as a wheel via the `pyopenms_wheel` CMake target (writes to /openms-build/pyopenms_wheels/),
-# then repair the wheel with `auditwheel` and install the repaired wheel into the build python env.
+# Ensure wheel tooling is available in the build Python, then package and repair the wheel.
 RUN set -eux; \
-    cd /openms-build; \
-    echo "Invoking CMake pyopenms_wheel target to package wheel..."; \
-    cmake --build . --target pyopenms_wheel || true; \
-    echo "Wheel directory listing (pyopenms_wheels):"; ls -la pyopenms_wheels || true; \
     PY=/root/miniforge3/envs/streamlit-env/bin/python; \
     echo "Installing wheel tooling into build python..."; \
-    $PY -m pip install --no-cache-dir -U pip build auditwheel || true; \
+    $PY -m pip install --no-cache-dir -U pip build auditwheel; \
+    cd /openms-build; \
+    echo "Invoking CMake pyopenms_wheel target to package wheel..."; \
+    cmake --build . --target pyopenms_wheel; \
+    echo "Wheel directory listing (pyopenms_wheels):"; ls -la pyopenms_wheels || true; \
     if compgen -G "pyopenms_wheels/*.whl" > /dev/null; then \
         echo "Found built wheel(s) in pyopenms_wheels, repairing with auditwheel..."; \
         mkdir -p /openms-build/pyopenms_wheels_repaired; \
-        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl || true; \
+        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl; \
         echo "Repaired wheels:"; ls -la /openms-build/pyopenms_wheels_repaired || true; \
         $PY -m pip install /openms-build/pyopenms_wheels_repaired/*.whl; \
     elif compgen -G "pyOpenMS/dist/*.whl" > /dev/null; then \
