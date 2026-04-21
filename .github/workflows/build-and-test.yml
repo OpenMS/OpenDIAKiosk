@@ -50,8 +50,6 @@ jobs:
         include:
           - variant: full
             dockerfile: Dockerfile
-          - variant: simple
-            dockerfile: Dockerfile_simple
     steps:
       - uses: actions/checkout@v4
 
