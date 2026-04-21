@@ -4,14 +4,14 @@ kind: Kustomization
 resources:
   - ../../base
 
-namePrefix: template-app-
+namePrefix: opendiakiosk-
 
 commonLabels:
-  app: template-app
+  app: opendiakiosk
 
 images:
   - name: openms-streamlit
-    newName: ghcr.io/openms/streamlit-template
+    newName: ghcr.io/openms/opendiakiosk
     newTag: main-full
 
 patches:
@@ -21,21 +21,21 @@ patches:
     patch: |
       - op: replace
         path: /spec/routes/0/match
-        value: Host(`template.webapps.openms.de`) && PathPrefix(`/`)
+        value: Host(`opendia.webapps.openms.de`) && PathPrefix(`/`)
       - op: replace
         path: /spec/routes/0/services/0/name
-        value: template-app-streamlit
+        value: opendiakiosk-streamlit
   - target:
       kind: Deployment
       name: streamlit
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: "redis://template-app-redis:6379/0"
+        value: "redis://opendiakiosk-redis:6379/0"
   - target:
       kind: Deployment
       name: rq-worker
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: "redis://template-app-redis:6379/0"
+        value: "redis://opendiakiosk-redis:6379/0"

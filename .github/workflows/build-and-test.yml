@@ -35,7 +35,7 @@ jobs:
 
       - name: Validate kustomized overlay output
         run: |
-          kubectl kustomize k8s/overlays/template-app/ | \
+          kubectl kustomize k8s/overlays/opendiakiosk/ | \
             kubeconform -summary -strict -kubernetes-version 1.28.0 -skip IngressRoute
 
   build:
@@ -115,7 +115,7 @@ jobs:
       - name: Deploy with Kustomize
         run: |
           # Filter out Traefik IngressRoute (kind cluster uses nginx) and force imagePullPolicy=Never
-          kubectl kustomize k8s/overlays/template-app/ | \
+          kubectl kustomize k8s/overlays/opendiakiosk/ | \
             yq 'select(.kind != "IngressRoute")' | \
             sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' > /tmp/manifests.yaml
           for i in 1 2 3 4 5; do
@@ -129,14 +129,14 @@ jobs:
 
       - name: Wait for Redis to be ready
         run: |
-          kubectl wait -n openms --for=condition=ready pod -l app=template-app,component=redis --timeout=60s
+          kubectl wait -n openms --for=condition=ready pod -l app=opendiakiosk,component=redis --timeout=60s
 
       - name: Verify Redis Service is reachable
         run: |
-          kubectl run redis-test -n openms --image=redis:7-alpine --rm -i --restart=Never -- redis-cli -h template-app-redis.openms.svc.cluster.local ping
+          kubectl run redis-test -n openms --image=redis:7-alpine --rm -i --restart=Never -- redis-cli -h opendiakiosk-redis.openms.svc.cluster.local ping
 
       - name: Verify all deployments are available
         run: |
-          kubectl wait -n openms --for=condition=available deployment -l app=template-app --timeout=120s || true
-          kubectl get pods -n openms -l app=template-app
-          kubectl get services -n openms -l app=template-app
+          kubectl wait -n openms --for=condition=available deployment -l app=opendiakiosk --timeout=120s || true
+          kubectl get pods -n openms -l app=opendiakiosk
+          kubectl get services -n openms -l app=opendiakiosk
