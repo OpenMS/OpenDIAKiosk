@@ -15,6 +15,6 @@ services:
     environment:
       # Number of Streamlit server instances (default: 1 = no load balancer).
       # Set to >1 to enable nginx load balancing across multiple Streamlit instances.
-      - STREAMLIT_SERVER_COUNT=1
+      - STREAMLIT_SERVER_COUNT=10
 volumes:
   workspaces-streamlit-template:
