@@ -111,7 +111,7 @@ WORKDIR /openms-build/pyOpenMS
 RUN set -eux; \
     PY=/root/miniforge3/envs/streamlit-env/bin/python; \
     echo "Installing wheel tooling into build python..."; \
-    $PY -m pip install --no-cache-dir -U pip build auditwheel; \
+    $PY -m pip install --no-cache-dir -U pip build auditwheel py-build-cmake; \
     cd /openms-build; \
     echo "Invoking CMake pyopenms_wheel target to package wheel..."; \
     cmake --build . --target pyopenms_wheel; \
