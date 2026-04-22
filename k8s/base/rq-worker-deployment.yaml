@@ -53,7 +53,7 @@ spec:
               memory: "65Gi"
               cpu: "500m"
             limits:
-              memory: "256Gi"
+              memory: "200Gi"
               cpu: "4"
       volumes:
         - name: workspaces
