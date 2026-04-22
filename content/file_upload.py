@@ -40,6 +40,9 @@ with tabs[0]:
                 fileupload.save_uploaded_mzML(files)
             else:
                 st.warning("Select files first.")
+        if cols[2].form_submit_button("Load example files"):
+            fileupload.load_example_mzML_files()
+            st.rerun()
 
 # Local file upload option: via directory path
 if st.session_state.location == "local":
