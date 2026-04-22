@@ -45,9 +45,9 @@ Every production OpenMS webapp (quantms-web, umetaflow, FLASHApp) deploys via th
             │    Redis Deployment    │            │
             │      (1 replica)       │            ▼
             └────────────────────────┘   ┌────────────────────────┐
-                         ▲               │    Workspace PVC       │
-                         │               │   ReadWriteOnce 500Gi  │
-                         │ REDIS_URL     │   (cinder-csi)         │
+                         ▲               │      Kiosk PVC         │
+                         │               │    ReadWriteOnce 5Ti   │
+                         │ REDIS_URL     │     (cinder-csi)       │
                          │               └────────────────────────┘
                          │                        ▲
                          │                        │
@@ -72,13 +72,13 @@ Every production OpenMS webapp (quantms-web, umetaflow, FLASHApp) deploys via th
 | Redis Deployment | Job-queue backing store | 1 | No |
 | RQ Worker Deployment | Runs background workflows from the Redis queue | 1 | Yes |
 | Cleanup CronJob | Removes stale workspaces nightly at 03:00 UTC | — | Yes |
-| Workspace PVC | Shared `/workspaces-*` directory for session data | — | — |
+| Kiosk PVC | Shared `/workspaces-*` directory for session data (5Ti, `cinder-csi`) | — | — |
 | Traefik IngressRoute | External HTTP entrypoint with sticky sessions | — | — |
 | nginx Ingress | Alternative HTTP entrypoint used by the CI kind cluster | — | — |
 
 ### Pod affinity
 
-All workspace-using pods (Streamlit, RQ worker, Cleanup) carry a `volume-group: workspaces` label and a `requiredDuringSchedulingIgnoredDuringExecution` pod-affinity rule keyed on `kubernetes.io/hostname`. This forces every workspace-using pod onto the same node, so they can share the `ReadWriteOnce` PVC.
+All workspace-using pods (Streamlit, RQ worker, Cleanup) carry a `volume-group: kiosk` label and a `requiredDuringSchedulingIgnoredDuringExecution` pod-affinity rule keyed on `kubernetes.io/hostname`. This forces every workspace-using pod onto the same node, so they can share the `ReadWriteOnce` PVC.
 
 Co-location is a placement constraint, not a replica cap. The Streamlit deployment can scale to N replicas — they all land on the same node alongside the worker.
 
@@ -103,6 +103,14 @@ PersistentVolumeClaim `workspaces-pvc`:
 - `storageClassName: cinder-csi`
 - `resources.requests.storage: 500Gi`
 
+Retained for migration only. The workloads no longer mount this PVC; delete it manually once any data on it has been migrated to `kiosk-pvc`.
+
+### `kiosk-pvc.yaml`
+PersistentVolumeClaim `kiosk-pvc` — the active workspace volume used by Streamlit, RQ worker, and the cleanup CronJob:
+- `accessModes: [ReadWriteOnce]`
+- `storageClassName: cinder-csi`
+- `resources.requests.storage: 5Ti`
+
 ### `streamlit-deployment.yaml`
 Main Streamlit Deployment. Key fields:
 - `replicas: 2` (scales to N)
@@ -111,13 +119,13 @@ Main Streamlit Deployment. Key fields:
 - Mounts the workspace PVC at `/workspaces-streamlit-template`
 - Mounts `settings-overrides.json` from the ConfigMap as a `subPath`
 - Readiness and liveness probes hit `/_stcore/health`
-- Pod affinity: `volume-group: workspaces`
+- Pod affinity: `volume-group: kiosk`
 
 ### `streamlit-service.yaml`
 ClusterIP Service exposing Streamlit on port 8501.
 
 ### `rq-worker-deployment.yaml`
-RQ worker Deployment (1 replica). Runs `rq worker openms-workflows --url $REDIS_URL`. Shares the workspace PVC via the same `volume-group: workspaces` affinity rule.
+RQ worker Deployment (1 replica). Runs `rq worker openms-workflows --url $REDIS_URL`. Shares the workspace PVC via the same `volume-group: kiosk` affinity rule.
 
 ### `cleanup-cronjob.yaml`
 CronJob that runs `python clean-up-workspaces.py` nightly at 03:00 UTC. Uses `concurrencyPolicy: Forbid`, retains 3 successful and 3 failed jobs. Shares the workspace PVC.
