@@ -197,7 +197,9 @@ def _read_ini_short_values(
     return values
 
 
-def _sync_osw_ini_from_current_state() -> tuple[bool, Path, Path | None, int, dict[str, object]]:
+def _sync_osw_ini_from_current_state() -> tuple[
+    bool, Path, Path | None, int, dict[str, object]
+]:
     """
     Rebuild the workspace OpenSwathWorkflow INI from the installed binary and the
     current OpenSwathWorkflow widget state, then mirror it into
@@ -205,7 +207,9 @@ def _sync_osw_ini_from_current_state() -> tuple[bool, Path, Path | None, int, di
     """
     merged_tool_params = _collect_saved_and_current_osw_values()
     dest = INI_DIR / "OpenSwathWorkflow.ini"
-    mirrored_dest = workspace_dir / "openswath-workflow" / "ini" / "OpenSwathWorkflow.ini"
+    mirrored_dest = (
+        workspace_dir / "openswath-workflow" / "ini" / "OpenSwathWorkflow.ini"
+    )
 
     synced = pm.refresh_ini_from_binary("OpenSwathWorkflow", merged_tool_params)
     if not synced and dest.exists():
@@ -343,7 +347,9 @@ def _rehydrate_osw_special_widgets() -> None:
     Reset custom OpenSwathWorkflow helper widgets when the saved tool payload
     changes so they re-seed from workspace params instead of stale session state.
     """
-    signature_key = f"{workspace_dir.resolve()}::OpenSwathWorkflow::special_widget_state"
+    signature_key = (
+        f"{workspace_dir.resolve()}::OpenSwathWorkflow::special_widget_state"
+    )
     saved_tool_params = pm.get_parameters_from_json().get("OpenSwathWorkflow", {})
     current_signature = json.dumps(saved_tool_params, sort_keys=True, default=str)
 
@@ -1432,7 +1438,9 @@ else:
     }
     read_option_widget_key = "osw_read_options"
     temp_dir_key = f"{TPFX}OpenSwathWorkflow:1:tempDirectory"
-    saved_read_option = _saved_tool_param("OpenSwathWorkflow", "readOptions", "normal")
+    saved_read_option = _saved_tool_param(
+        "OpenSwathWorkflow", "readOptions", "cacheWorkingInMemory"
+    )
     _seed_choice_state(read_option_widget_key, read_options, saved_read_option)
 
     read_mode_col, read_info_col = st.columns([1.2, 1.8])
@@ -1644,7 +1652,9 @@ if cfg_files:
             ctx_cols = st.columns(len(PY_INFER_CONTEXTS))
             infer_context_values = []
             for col, context in zip(ctx_cols, PY_INFER_CONTEXTS):
-                widget_key = f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
+                widget_key = (
+                    f"pyprophet_{infer_type}_context_{context.replace('-', '_')}"
+                )
                 _seed_checkbox_state(widget_key, context in saved_contexts)
                 if col.checkbox(context, key=widget_key):
                     infer_context_values.append(context)
@@ -1891,9 +1901,9 @@ if cfg_files:
 
     if pyprophet_view_mode == "Focused":
         panel_options = [cmd_key for cmd_key, _, _ in cfg_entries] + ["__matrix__"]
-        panel_labels = {
-            cmd_key: title for cmd_key, title, _ in cfg_entries
-        } | {"__matrix__": "pyprophet export matrix"}
+        panel_labels = {cmd_key: title for cmd_key, title, _ in cfg_entries} | {
+            "__matrix__": "pyprophet export matrix"
+        }
         _seed_choice_state(
             "pyprophet_panel_selection",
             panel_options,
