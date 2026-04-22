@@ -50,10 +50,10 @@ spec:
               readOnly: true
           resources:
             requests:
-              memory: "1Gi"
+              memory: "65Gi"
               cpu: "500m"
             limits:
-              memory: "8Gi"
+              memory: "256Gi"
               cpu: "4"
       volumes:
         - name: workspaces
