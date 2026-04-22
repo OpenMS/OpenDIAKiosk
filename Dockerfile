@@ -97,7 +97,7 @@ RUN mkdir /openms-build
 WORKDIR /openms-build
 
 # Configure.
-RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON -DWITH_UV=OFF -DPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python ../OpenMS -DPY_MEMLEAK_DISABLE=On"
+RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON -DWITH_UV=OFF -DPYOPENMS_PREPARE_WHEEL_REPAIR=ON -DPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python ../OpenMS -DPY_MEMLEAK_DISABLE=On"
 
 # Build TOPP tools and clean up.
 RUN make -j4 OpenSwathAssayGenerator OpenSwathDecoyGenerator OpenSwathWorkflow
