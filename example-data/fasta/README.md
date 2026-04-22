@@ -1,0 +1,3 @@
+Common contaminants retrieved from https://github.com/HaoGroup-ProtContLib/Protein-Contaminant-Libraries-for-DDA-and-DIA-Proteomics/tree/main
+
+Frankenfield AM, Ni J, Ahmed M, Hao L. Protein contaminants matter: building universal protein contaminant libraries for DDA and DIA proteomics. Journal of proteome research. 2022 Jul 6;21(9):2104-13. https://pubs.acs.org/doi/full/10.1021/acs.jproteome.2c00145
