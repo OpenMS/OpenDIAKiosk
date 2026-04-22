@@ -13,7 +13,7 @@ spec:
     metadata:
       labels:
         component: streamlit
-        volume-group: workspaces
+        volume-group: kiosk
     spec:
       affinity:
         podAffinity:
@@ -23,7 +23,7 @@ spec:
                   - key: volume-group
                     operator: In
                     values:
-                      - workspaces
+                      - kiosk
               topologyKey: kubernetes.io/hostname
       containers:
         - name: streamlit
@@ -72,7 +72,7 @@ spec:
       volumes:
         - name: workspaces
           persistentVolumeClaim:
-            claimName: workspaces-pvc
+            claimName: kiosk-pvc
         - name: config
           configMap:
             name: streamlit-config

@@ -15,7 +15,7 @@ spec:
         metadata:
           labels:
             component: cleanup
-            volume-group: workspaces
+            volume-group: kiosk
         spec:
           restartPolicy: OnFailure
           affinity:
@@ -26,7 +26,7 @@ spec:
                       - key: volume-group
                         operator: In
                         values:
-                          - workspaces
+                          - kiosk
                   topologyKey: kubernetes.io/hostname
           containers:
             - name: cleanup
@@ -53,4 +53,4 @@ spec:
           volumes:
             - name: workspaces
               persistentVolumeClaim:
-                claimName: workspaces-pvc
+                claimName: kiosk-pvc
