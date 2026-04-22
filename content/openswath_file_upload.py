@@ -79,7 +79,9 @@ def _save_optional_upload_to_path(uploaded_file, target_path: Path, label: str) 
 def _list_workspace_files(path: Path) -> list[Path]:
     if not path.exists():
         return []
-    return sorted([p for p in path.iterdir() if p.is_file()], key=lambda item: item.name.lower())
+    return sorted(
+        [p for p in path.iterdir() if p.is_file()], key=lambda item: item.name.lower()
+    )
 
 
 def _clear_xic_viewer_state() -> None:
@@ -307,8 +309,8 @@ def _copy_or_link_local_file_to_path(
     return 1
 
 
-if mzML_dir.exists() and not any(mzML_dir.iterdir()):
-    fileupload.load_example_mzML_files()
+# if mzML_dir.exists() and not any(mzML_dir.iterdir()):
+#     fileupload.load_example_mzML_files()
 
 
 st.title("File Upload")
@@ -430,42 +432,63 @@ with tabs[0]:
                 st.success(f"Saved library to workspace: {lib_path.name}")
                 any_saved = True
 
-            any_saved = _save_optional_upload_to_path(
-                osag_generated_file,
-                generated_transition_targets["osag"],
-                "OpenSwathAssayGenerator output",
-            ) or any_saved
-            any_saved = _save_optional_upload_to_path(
-                osdg_generated_file,
-                generated_transition_targets["osdg"],
-                "OpenSwathDecoyGenerator output",
-            ) or any_saved
+            any_saved = (
+                _save_optional_upload_to_path(
+                    osag_generated_file,
+                    generated_transition_targets["osag"],
+                    "OpenSwathAssayGenerator output",
+                )
+                or any_saved
+            )
+            any_saved = (
+                _save_optional_upload_to_path(
+                    osdg_generated_file,
+                    generated_transition_targets["osdg"],
+                    "OpenSwathDecoyGenerator output",
+                )
+                or any_saved
+            )
 
-            any_saved = _save_optional_upload(
-                osw_result_file,
-                result_target_dirs["osw"],
-                "OSW result",
-            ) or any_saved
-            any_saved = _save_optional_upload(
-                long_tsv_file,
-                result_target_dirs["long_tsv"],
-                "long TSV result",
-            ) or any_saved
-            any_saved = _save_optional_upload(
-                precursor_matrix_file,
-                result_target_dirs["precursor_matrix"],
-                "precursor matrix",
-            ) or any_saved
-            any_saved = _save_optional_upload(
-                peptide_matrix_file,
-                result_target_dirs["peptide_matrix"],
-                "peptide matrix",
-            ) or any_saved
-            any_saved = _save_optional_upload(
-                protein_matrix_file,
-                result_target_dirs["protein_matrix"],
-                "protein matrix",
-            ) or any_saved
+            any_saved = (
+                _save_optional_upload(
+                    osw_result_file,
+                    result_target_dirs["osw"],
+                    "OSW result",
+                )
+                or any_saved
+            )
+            any_saved = (
+                _save_optional_upload(
+                    long_tsv_file,
+                    result_target_dirs["long_tsv"],
+                    "long TSV result",
+                )
+                or any_saved
+            )
+            any_saved = (
+                _save_optional_upload(
+                    precursor_matrix_file,
+                    result_target_dirs["precursor_matrix"],
+                    "precursor matrix",
+                )
+                or any_saved
+            )
+            any_saved = (
+                _save_optional_upload(
+                    peptide_matrix_file,
+                    result_target_dirs["peptide_matrix"],
+                    "peptide matrix",
+                )
+                or any_saved
+            )
+            any_saved = (
+                _save_optional_upload(
+                    protein_matrix_file,
+                    result_target_dirs["protein_matrix"],
+                    "protein matrix",
+                )
+                or any_saved
+            )
 
             if xic_files:
                 fileupload.save_uploaded_xic(xic_files)
@@ -473,6 +496,11 @@ with tabs[0]:
 
             if not any_saved:
                 st.warning("Select files first.")
+        if cols[2].form_submit_button("Load example files"):
+            # Load example mzML and FASTA into workspace and rerun to refresh
+            # fileupload.load_example_mzML_files(pattern="20200505_Evosep_200SPD_SG06") # exclude example files
+            fileupload.load_example_fasta_files(pattern="human")
+            st.rerun()
 
 if st.session_state.location == "local":
     with tabs[1]:
@@ -750,7 +778,9 @@ if st.session_state.location == "local":
 
 
 mzml_files = [
-    f.name for f in _list_workspace_files(mzML_dir) if "external_files.txt" not in f.name
+    f.name
+    for f in _list_workspace_files(mzML_dir)
+    if "external_files.txt" not in f.name
 ]
 external_files = mzML_dir / "external_files.txt"
 external_list: list[str] = []
@@ -793,7 +823,9 @@ if has_workspace_files:
             show_table(pd.DataFrame({"file name": mzml_display}))
         else:
             st.info("No mzML files in workspace")
-        to_remove_mz = st.multiselect("Select mzML files to remove", options=mzml_display)
+        to_remove_mz = st.multiselect(
+            "Select mzML files to remove", options=mzml_display
+        )
         rm_mz_c1, rm_mz_c2 = st.columns([1, 1])
         if rm_mz_c2.button("Remove selected mzML", disabled=not any(to_remove_mz)):
             params = fileupload.remove_selected_mzML_files(
@@ -877,7 +909,9 @@ if has_workspace_files:
             generated_df = pd.DataFrame(
                 {
                     "step": [label for label, _ in generated_transition_outputs],
-                    "file name": [path.name for _, path in generated_transition_outputs],
+                    "file name": [
+                        path.name for _, path in generated_transition_outputs
+                    ],
                     "workspace path": [
                         _workspace_rel(path) for _, path in generated_transition_outputs
                     ],
@@ -909,9 +943,13 @@ if has_workspace_files:
         if imported_results:
             imported_df = pd.DataFrame(
                 {
-                    "type": [_classify_imported_result(path) for path in imported_results],
+                    "type": [
+                        _classify_imported_result(path) for path in imported_results
+                    ],
                     "file name": [path.name for path in imported_results],
-                    "workspace path": [_workspace_rel(path) for path in imported_results],
+                    "workspace path": [
+                        _workspace_rel(path) for path in imported_results
+                    ],
                 }
             )
             show_table(imported_df)
