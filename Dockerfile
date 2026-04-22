@@ -24,7 +24,7 @@ USER root
 RUN apt-get -y update
 RUN apt-get install -y --no-install-recommends --no-install-suggests g++ autoconf automake patch libtool make git gpg wget ca-certificates curl jq libgtk2.0-dev openjdk-8-jdk cron
 RUN update-ca-certificates
-RUN apt-get install -y --no-install-recommends --no-install-suggests libsvm-dev libeigen3-dev coinor-libcbc-dev libglpk-dev libzip-dev zlib1g-dev libxerces-c-dev libbz2-dev libomp-dev libhdf5-dev
+RUN apt-get install -y --no-install-recommends --no-install-suggests libsvm-dev libeigen3-dev coinor-libcbc-dev libglpk-dev libzip-dev zlib1g-dev libxerces-c-dev libbz2-dev libomp-dev libhdf5-dev patchelf
 RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-date-time1.83-dev \
                                                                      libboost-iostreams1.83-dev \
                                                                      libboost-regex1.83-dev \
@@ -119,18 +119,25 @@ RUN set -eux; \
     if compgen -G "pyopenms_wheels/*.whl" > /dev/null; then \
         echo "Found built wheel(s) in pyopenms_wheels, repairing with auditwheel..."; \
         mkdir -p /openms-build/pyopenms_wheels_repaired; \
-        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl || true; \
-        echo "Repaired wheels:"; ls -la /openms-build/pyopenms_wheels_repaired || true; \
-        $PY -m pip install /openms-build/pyopenms_wheels_repaired/*.whl || true; \
+        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl; \
+        echo "Repaired wheels:"; ls -la /openms-build/pyopenms_wheels_repaired; \
+        if compgen -G "/openms-build/pyopenms_wheels_repaired/*.whl" > /dev/null; then \
+            echo "Installing repaired wheel(s) into build python..."; \
+            for f in /openms-build/pyopenms_wheels_repaired/*.whl; do $PY -m pip install "$f"; done; \
+        else \
+            echo "ERROR: auditwheel did not produce any repaired wheels"; \
+            ls -la /openms-build/pyopenms_wheels_repaired || true; \
+            exit 1; \
+        fi; \
     elif compgen -G "pyOpenMS/dist/*.whl" > /dev/null; then \
         echo "Found legacy dist wheel, installing..."; \
-        $PY -m pip install pyOpenMS/dist/*.whl || true; \
+        $PY -m pip install pyOpenMS/dist/*.whl; \
     else \
         echo "No wheel produced; falling back to development install (editable)"; \
         cd /openms-build/pyOpenMS; \
         echo "Installing editable pyopenms into build python..."; \
-        $PY -m pip install -e . --no-cache-dir --no-binary=pyopenms || true; \
-        echo "Editable install completed (or attempted)."; \
+        $PY -m pip install -e . --no-cache-dir --no-binary=pyopenms; \
+        echo "Editable install completed."; \
     fi
 
 # Install other dependencies (excluding pyopenms)
