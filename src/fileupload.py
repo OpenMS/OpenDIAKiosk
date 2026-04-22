@@ -78,7 +78,7 @@ def copy_local_mzML_files_from_directory(
     st.success("Successfully added local files!")
 
 
-def load_example_mzML_files() -> None:
+def load_example_mzML_files(pattern: str | None = None) -> None:
     """
     Copies example mzML files to the mzML directory.
 
@@ -95,6 +95,13 @@ def load_example_mzML_files() -> None:
     example_files = list(Path("example-data", "mzML").glob("*.mzML")) + list(
         Path("example-data", "mzML").glob("*.mzML.gz")
     )
+
+    # Optional pattern filtering (case-insensitive). Accept comma-separated list.
+    if pattern:
+        patterns = [p.strip().lower() for p in pattern.split(",") if p.strip()]
+        example_files = [
+            f for f in example_files if any(p in f.name.lower() for p in patterns)
+        ]
     for f in example_files:
         target = mzML_dir / f.name
         if OS_PLATFORM == "linux":
@@ -104,6 +111,49 @@ def load_example_mzML_files() -> None:
         else:
             shutil.copy(f, mzML_dir)
     st.success("Example mzML files loaded!")
+
+
+def load_example_fasta_files(pattern: str | None = None) -> None:
+    """
+    Copies or symlinks example FASTA files into the workspace `input-files/fasta` directory.
+
+    On Linux, creates symlinks to example files instead of copying them.
+
+    Returns:
+        None
+    """
+    fasta_dir = Path(st.session_state.workspace, "input-files", "fasta")
+    fasta_dir.mkdir(parents=True, exist_ok=True)
+
+    example_files = (
+        list(Path("example-data", "fasta").glob("*.fasta"))
+        + list(Path("example-data", "fasta").glob("*.fa"))
+        + list(Path("example-data", "fasta").glob("*.faa"))
+    )
+
+    # Optional pattern filtering (case-insensitive). Accept comma-separated list.
+    if pattern:
+        patterns = [p.strip().lower() for p in pattern.split(",") if p.strip()]
+        example_files = [
+            f for f in example_files if any(p in f.name.lower() for p in patterns)
+        ]
+
+    if not example_files:
+        st.warning(
+            "No example FASTA files found in example-data/fasta matching pattern."
+        )
+        return
+
+    for f in example_files:
+        target = fasta_dir / f.name
+        if OS_PLATFORM == "linux":
+            if target.exists():
+                target.unlink()
+            target.symlink_to(f.resolve())
+        else:
+            shutil.copy(f, fasta_dir)
+
+    st.success("Example FASTA files loaded!")
 
 
 def remove_selected_mzML_files(to_remove: list[str], params: dict) -> dict:
