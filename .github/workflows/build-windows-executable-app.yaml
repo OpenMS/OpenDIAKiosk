@@ -242,6 +242,7 @@ jobs:
     - name: Uncomment 'import site' in python311._pth file
       run: |
         sed -i 's/#import site/import site/' python-${{ env.PYTHON_VERSION }}/python311._pth
+        echo "Lib/site-packages" >> python-${{ env.PYTHON_VERSION }}/python311._pth
 
     - name: Install Required Packages
       # Use system Python (which has development headers) to compile packages,
