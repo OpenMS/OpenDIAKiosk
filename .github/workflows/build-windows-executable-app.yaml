@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 env:
-  OPENMS_VERSION: ef4650734e5ecd5ed202e14460890a97b189ddec
+  OPENMS_VERSION: 4e1f34d7bbd37d1dab2a4dc948c72cffb892bf4e
   # Override to pin contrib to a specific release when OPENMS_VERSION is a non-release branch (e.g. "develop").
   # Leave empty to use OPENMS_VERSION.
   OPENMS_CONTRIB_VERSION: "2026-03-25-183345"
@@ -33,7 +33,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
       with:
-        repository: OpenMS/OpenMS
+        repository: singjc/OpenMS
         ref: ${{ env.OPENMS_VERSION }}
         path: 'OpenMS'
 
