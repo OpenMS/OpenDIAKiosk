@@ -301,6 +301,7 @@ jobs:
         cp -r docs streamlit_exe
         cp -r assets streamlit_exe
         cp -r example-data streamlit_exe
+        cp -r data streamlit_exe
         cp openms-bin/*.dll streamlit_exe
         cp -r .streamlit streamlit_exe
         cp -r share streamlit_exe/share
