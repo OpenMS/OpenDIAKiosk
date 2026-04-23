@@ -51,10 +51,10 @@ spec:
           resources:
             requests:
               memory: "65Gi"
-              cpu: "500m"
+              cpu: "2"
             limits:
               memory: "200Gi"
-              cpu: "4"
+              cpu: "20"
       volumes:
         - name: workspaces
           persistentVolumeClaim:
