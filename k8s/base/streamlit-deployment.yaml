@@ -62,13 +62,6 @@ spec:
               port: 8501
             initialDelaySeconds: 30
             periodSeconds: 30
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "500m"
-            limits:
-              memory: "4Gi"
-              cpu: "4"
       volumes:
         - name: workspaces
           persistentVolumeClaim:

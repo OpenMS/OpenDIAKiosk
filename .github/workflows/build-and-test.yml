@@ -35,7 +35,7 @@ jobs:
 
       - name: Validate kustomized overlay output
         run: |
-          kubectl kustomize k8s/overlays/opendiakiosk/ | \
+          kubectl kustomize k8s/overlays/prod/ | \
             kubeconform -summary -strict -kubernetes-version 1.28.0 -skip IngressRoute
 
   build:
@@ -103,6 +103,7 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: test-cluster
+          config: .github/kind-config.yaml
 
       - name: Load image into kind cluster
         run: kind load docker-image openms-streamlit:test --name test-cluster
@@ -115,7 +116,7 @@ jobs:
       - name: Deploy with Kustomize
         run: |
           # Filter out Traefik IngressRoute (kind cluster uses nginx) and force imagePullPolicy=Never
-          kubectl kustomize k8s/overlays/opendiakiosk/ | \
+          kubectl kustomize k8s/overlays/prod/ | \
             yq 'select(.kind != "IngressRoute")' | \
             sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' > /tmp/manifests.yaml
           for i in 1 2 3 4 5; do
