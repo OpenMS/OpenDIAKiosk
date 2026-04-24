@@ -1315,7 +1315,7 @@ else:
     if save_xics_key not in st.session_state:
         saved_chrom = _saved_tool_param("OpenSwathWorkflow", "out_chrom", None)
         st.session_state[save_xics_key] = (
-            bool(saved_chrom) if saved_chrom is not None else True
+            bool(saved_chrom) if saved_chrom is not None else False
         )
     if save_xims_key not in st.session_state:
         saved_mobil = _saved_tool_param("OpenSwathWorkflow", "out_mobilogram", None)
