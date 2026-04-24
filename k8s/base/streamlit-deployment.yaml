@@ -25,6 +25,19 @@ spec:
                     values:
                       - kiosk
               topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: seed-demos
+          image: openms-streamlit
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /workspaces-streamlit-template/.demos
+              cp -rn /app/example-data/workspaces/. /workspaces-streamlit-template/.demos/
+          volumeMounts:
+            - name: workspaces
+              mountPath: /workspaces-streamlit-template
       containers:
         - name: streamlit
           image: openms-streamlit
@@ -50,6 +63,9 @@ spec:
               mountPath: /app/settings-overrides.json
               subPath: settings-overrides.json
               readOnly: true
+            - name: admin-secrets
+              mountPath: /app/admin-secrets
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /_stcore/health
@@ -69,3 +85,7 @@ spec:
         - name: config
           configMap:
             name: streamlit-config
+        - name: admin-secrets
+          secret:
+            secretName: streamlit-secrets
+            optional: true
