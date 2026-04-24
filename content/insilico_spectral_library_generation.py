@@ -7,6 +7,15 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.common import page_setup, save_params
+from src.common.workspace_files import (
+    FASTA_EXTENSIONS,
+    LIBRARY_EXTENSIONS,
+    list_workspace_files,
+    save_uploaded_file,
+    sync_file_into_directory,
+    workspace_fasta_dir,
+    workspace_library_dir,
+)
 from src.workflow.EasyPQPWorkflow import EasyPQPWorkflow
 
 params = page_setup()
@@ -39,17 +48,39 @@ os.environ["REDEEM_PRETRAINED_MODELS_DIR"] = str(
     Path("data", "pretrained_models").resolve()
 )
 
+workspace_dir = Path(st.session_state.get("workspace", ".")).resolve()
+shared_fasta_dir = workspace_fasta_dir(workspace_dir)
+shared_library_dir = workspace_library_dir(workspace_dir)
+workspace_fasta_files = list_workspace_files(shared_fasta_dir, FASTA_EXTENSIONS)
+
 # =============================================================================
 # SECTION 1: INPUT & OUTPUT
 # =============================================================================
 st.subheader("📂 Input & Output")
 col1, col2 = st.columns([1, 1])
 with col1:
+    workspace_fasta_options = [path.name for path in workspace_fasta_files]
+    selected_workspace_fasta = st.selectbox(
+        "Workspace FASTA",
+        options=[""] + workspace_fasta_options,
+        index=0,
+        format_func=lambda value: (
+            "Select an existing FASTA from the workspace" if value == "" else value
+        ),
+        help=(
+            "Files are read from `input-files/fasta`. Uploading a new FASTA below "
+            "will save it there for reuse across the app."
+        ),
+    )
     fasta_file = st.file_uploader(
-        "FASTA File",
+        "Or Upload New FASTA",
         type=["fasta", "fa", "faa", "fna"],
         help="FASTA file with protein sequences to digest and generate a library from.",
     )
+    if fasta_file is not None:
+        st.caption("Uploaded FASTA will be saved into the workspace before the run starts.")
+    elif not workspace_fasta_options:
+        st.caption("No FASTA files currently saved in the workspace.")
 with col2:
     output_file = st.text_input(
         "Output File",
@@ -596,21 +627,19 @@ if st.button(
         wf_dir = Path(wf.workflow_dir).resolve()  # Ensure absolute path
         st.write(f"✅ Workflow created: {wf_dir}")
 
-        fasta_dest_dir = Path(wf_dir, "input-files", "fasta")
-        fasta_dest_dir.mkdir(parents=True, exist_ok=True)
-
-        if fasta_file is None:
-            st.error("❌ Please upload a FASTA file before running in workspace.")
+        if fasta_file is None and not selected_workspace_fasta:
+            st.error(
+                "❌ Please upload a FASTA file or select one already saved in the workspace."
+            )
         else:
             st.write("📤 Uploading files...")
 
-            # === FILE UPLOADS ===
-            # Copy FASTA file
-            fasta_name = getattr(fasta_file, "name", "uploaded.fasta")
-            fasta_path = Path(fasta_dest_dir, fasta_name)
-            with open(fasta_path, "wb") as fh:
-                fh.write(fasta_file.getbuffer())
-            st.write(f"✅ FASTA uploaded to: {fasta_path}")
+            if fasta_file is not None:
+                fasta_path = save_uploaded_file(fasta_file, shared_fasta_dir)
+                st.write(f"✅ FASTA saved to workspace: {fasta_path}")
+            else:
+                fasta_path = Path(shared_fasta_dir, selected_workspace_fasta)
+                st.write(f"✅ Using workspace FASTA: {fasta_path}")
 
             # Optional: copy unimod file
             unimod_path_str = None
@@ -859,7 +888,7 @@ st.markdown("---")
 st.subheader("📥 Download Results")
 
 # Get the default workspace path
-default_workspace = Path(st.session_state.get("workspace", ".")).resolve()
+default_workspace = workspace_dir
 easypqp_workspace = Path(default_workspace, "easypqp-insilico").resolve()
 results_dir = Path(easypqp_workspace, "results", "insilico").resolve()
 
@@ -879,6 +908,20 @@ if easypqp_workspace.exists() and results_dir.exists():
 
     if tsv_files or html_files or report_files or json_files:
         st.success("✅ Results generated! Download below.")
+
+        synced_library_files = [
+            synced_path
+            for path in tsv_files + report_files
+            if path.suffix.lower() in LIBRARY_EXTENSIONS
+            for synced_path in [sync_file_into_directory(path, shared_library_dir)]
+            if synced_path is not None
+        ]
+        if synced_library_files:
+            synced_names = ", ".join(f"`{path.name}`" for path in synced_library_files)
+            st.caption(
+                "Workspace library pool updated in `input-files/libraries`: "
+                f"{synced_names}"
+            )
 
         # JSON Config files
         if json_files:

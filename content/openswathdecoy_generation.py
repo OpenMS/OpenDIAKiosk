@@ -7,6 +7,14 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.common import page_setup, save_params
+from src.common.workspace_files import (
+    LIBRARY_EXTENSIONS,
+    file_size_label,
+    list_workspace_files,
+    save_uploaded_file,
+    sync_file_into_directory,
+    workspace_library_dir,
+)
 from src.workflow.OpenSwathDecoyGeneratorWorkflow import OpenSwathDecoyGeneratorWorkflow
 
 params = page_setup()
@@ -42,23 +50,20 @@ st.markdown("---")
 st.subheader("📥 Input Library File")
 
 default_workspace = Path(st.session_state.get("workspace", ".")).resolve()
+shared_library_dir = workspace_library_dir(default_workspace)
 assay_results_dir = Path(
     default_workspace, "openswath-assay-generator", "results", "openswath"
 ).resolve()
 
-existing_libraries = []
-if assay_results_dir.exists():
-    valid_extensions = {".traml", ".tsv", ".mrm", ".pqp", ".oswpq"}
-    existing_libraries = sorted(
-        [
-            f.name
-            for f in assay_results_dir.glob("*")
-            if f.is_file() and f.suffix.lower() in valid_extensions
-        ]
-    )
+for legacy_path in list_workspace_files(assay_results_dir, LIBRARY_EXTENSIONS):
+    sync_file_into_directory(legacy_path, shared_library_dir)
+
+existing_libraries = [
+    path.name for path in list_workspace_files(shared_library_dir, LIBRARY_EXTENSIONS)
+]
 
 if existing_libraries:
-    st.write("**Option 1: Use existing OpenSwath Assay library**")
+    st.write("**Option 1: Use library already saved in the workspace**")
     selected_lib = st.selectbox(
         "Select from existing libraries",
         options=[""] + existing_libraries,
@@ -66,9 +71,8 @@ if existing_libraries:
         key="select_existing_decoy_input",
     )
     if selected_lib:
-        selected_lib_path = Path(assay_results_dir, selected_lib)
-        size_mb = selected_lib_path.stat().st_size / (1024 * 1024)
-        st.write(f"✅ Selected: {selected_lib} ({size_mb:.1f} MB)")
+        selected_lib_path = Path(shared_library_dir, selected_lib)
+        st.write(f"✅ Selected: {selected_lib} ({file_size_label(selected_lib_path)})")
 else:
     selected_lib = None
 
@@ -80,6 +84,7 @@ input_file = st.file_uploader(
 )
 if input_file is not None:
     st.write(f"✅ Loaded: {input_file.name}")
+    st.caption("Uploaded library will be saved into `input-files/libraries` before the run starts.")
 
 st.markdown("---")
 st.subheader("📤 Output Configuration")
@@ -241,21 +246,17 @@ if st.button(
         wf_dir = Path(wf.workflow_dir).resolve()
         st.write(f"✅ Workflow created: {wf_dir}")
 
-        input_dest_dir = Path(wf_dir, "input-files", "library")
-        input_dest_dir.mkdir(parents=True, exist_ok=True)
-
         if input_file is None and not selected_lib:
-            st.error("❌ Please upload a library or select an existing one.")
+            st.error(
+                "❌ Please upload a library or select one already saved in the workspace."
+            )
         else:
             if input_file is not None:
-                input_name = getattr(input_file, "name", "library.tsv")
-                input_path = Path(input_dest_dir, input_name)
-                with open(input_path, "wb") as fh:
-                    fh.write(input_file.getbuffer())
-                st.write(f"✅ Input uploaded to: {input_path}")
+                input_path = save_uploaded_file(input_file, shared_library_dir)
+                st.write(f"✅ Library saved to workspace: {input_path}")
             else:
-                input_path = Path(assay_results_dir, selected_lib)
-                st.write(f"✅ Using existing library: {input_path}")
+                input_path = Path(shared_library_dir, selected_lib)
+                st.write(f"✅ Using workspace library: {input_path}")
 
             results_dir = Path(wf_dir, "results", "decoy").resolve()
             results_dir.mkdir(parents=True, exist_ok=True)
@@ -339,22 +340,31 @@ if decoy_workspace.exists() and results_dir.exists():
     if decoy_files:
         st.success("✅ Decoy results generated! Download below.")
 
+        synced_library_files = [
+            synced_path
+            for path in decoy_files
+            if path.suffix.lower() in LIBRARY_EXTENSIONS
+            for synced_path in [sync_file_into_directory(path, shared_library_dir)]
+            if synced_path is not None
+        ]
+        if synced_library_files:
+            st.caption(
+                "Synced to workspace libraries: "
+                + ", ".join(f"`{path.name}`" for path in synced_library_files)
+            )
+
         for decoy_file in decoy_files:
             try:
                 col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
                     st.write(f"📄 {decoy_file.name}")
                 with col2:
-                    size_mb = decoy_file.stat().st_size / (1024 * 1024)
-                    if size_mb < 1:
-                        st.write(f"({decoy_file.stat().st_size / 1024:.1f} KB)")
-                    else:
-                        st.write(f"({size_mb:.1f} MB)")
+                    st.write(f"({file_size_label(decoy_file)})")
                 with col3:
                     with open(decoy_file, "rb") as f:
                         st.download_button(
                             "⬇️ Download",
-                            data=f.read(),
+                            data=f,
                             file_name=decoy_file.name,
                             key=f"decoy_{decoy_file.name}",
                             use_container_width=True,

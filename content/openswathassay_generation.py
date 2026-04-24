@@ -7,6 +7,14 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.common import page_setup, save_params
+from src.common.workspace_files import (
+    LIBRARY_EXTENSIONS,
+    file_size_label,
+    list_workspace_files,
+    save_uploaded_file,
+    sync_file_into_directory,
+    workspace_library_dir,
+)
 from src.workflow.OpenSwathAssayGeneratorWorkflow import OpenSwathAssayGeneratorWorkflow
 
 params = page_setup()
@@ -48,17 +56,21 @@ st.markdown("---")
 # --- Input File Upload ---
 st.subheader("📥 Input Library File")
 
-# Scan for existing EasyPQP results
 default_workspace = Path(st.session_state.get("workspace", ".")).resolve()
-easypqp_results_dir = Path(default_workspace, "easypqp-insilico", "results", "insilico").resolve()
-existing_libraries = []
-if easypqp_results_dir.exists():
-    valid_extensions = {".traml", ".tsv", ".mrm", ".pqp", ".oswpq"}
-    existing_libraries = sorted([f.name for f in easypqp_results_dir.glob("*") if f.is_file() and f.suffix.lower() in valid_extensions])
+shared_library_dir = workspace_library_dir(default_workspace)
+easypqp_results_dir = Path(
+    default_workspace, "easypqp-insilico", "results", "insilico"
+).resolve()
 
-# Option 1: Select from existing EasyPQP libraries
+for legacy_path in list_workspace_files(easypqp_results_dir, LIBRARY_EXTENSIONS):
+    sync_file_into_directory(legacy_path, shared_library_dir)
+
+workspace_library_files = list_workspace_files(shared_library_dir, LIBRARY_EXTENSIONS)
+existing_libraries = [path.name for path in workspace_library_files]
+
+# Option 1: Select from shared workspace libraries
 if existing_libraries:
-    st.write("**Option 1: Use existing EasyPQP library**")
+    st.write("**Option 1: Use library already saved in the workspace**")
     selected_lib = st.selectbox(
         "Select from existing libraries",
         options=[""] + existing_libraries,
@@ -66,8 +78,8 @@ if existing_libraries:
         key="select_existing_library",
     )
     if selected_lib:
-        selected_lib_path = Path(easypqp_results_dir, selected_lib)
-        st.write(f"✅ Selected: {selected_lib} ({selected_lib_path.stat().st_size / (1024 * 1024):.1f} MB)")
+        selected_lib_path = Path(shared_library_dir, selected_lib)
+        st.write(f"✅ Selected: {selected_lib} ({file_size_label(selected_lib_path)})")
 else:
     selected_lib = None
 
@@ -80,6 +92,7 @@ input_file = st.file_uploader(
 )
 if input_file is not None:
     st.write(f"✅ Loaded: {input_file.name}")
+    st.caption("Uploaded library will be saved into `input-files/libraries` before the run starts.")
 
 # --- Output File Configuration ---
 st.markdown("---")
@@ -291,26 +304,19 @@ if st.button(
         wf_dir = Path(wf.workflow_dir).resolve()  # Ensure absolute path
         st.write(f"✅ Workflow created: {wf_dir}")
 
-        input_dest_dir = Path(wf_dir, "input-files", "lib")
-        input_dest_dir.mkdir(parents=True, exist_ok=True)
-
         if input_file is None and not selected_lib:
-            st.error("❌ Please either upload an input library file or select an existing one before running in workspace.")
+            st.error(
+                "❌ Please upload an input library file or select one from the workspace before running."
+            )
         else:
             st.write("📤 Preparing files...")
 
-            # === FILE UPLOADS ===
-            # Copy input file - either from upload or from existing library
             if input_file is not None:
-                input_name = getattr(input_file, "name", "library.tsv")
-                input_path = Path(input_dest_dir, input_name)
-                with open(input_path, "wb") as fh:
-                    fh.write(input_file.getbuffer())
-                st.write(f"✅ Input uploaded to: {input_path}")
+                input_path = save_uploaded_file(input_file, shared_library_dir)
+                st.write(f"✅ Library saved to workspace: {input_path}")
             else:
-                # Use selected existing library
-                input_path = Path(easypqp_results_dir, selected_lib)
-                st.write(f"✅ Using existing library: {input_path}")
+                input_path = Path(shared_library_dir, selected_lib)
+                st.write(f"✅ Using workspace library: {input_path}")
 
             # Optional: copy unimod file
             unimod_path_str = None
@@ -496,6 +502,19 @@ if openswath_workspace.exists() and results_dir.exists():
     if assay_files:
         st.success("✅ Results generated! Download below.")
 
+        synced_library_files = [
+            synced_path
+            for path in assay_files
+            if path.suffix.lower() in LIBRARY_EXTENSIONS
+            for synced_path in [sync_file_into_directory(path, shared_library_dir)]
+            if synced_path is not None
+        ]
+        if synced_library_files:
+            st.caption(
+                "Synced to workspace libraries: "
+                + ", ".join(f"`{path.name}`" for path in synced_library_files)
+            )
+
         st.write("**📊 Assay Files:**")
         for assay_file in assay_files:
             try:
@@ -503,16 +522,12 @@ if openswath_workspace.exists() and results_dir.exists():
                 with col1:
                     st.write(f"📄 {assay_file.name}")
                 with col2:
-                    file_size = assay_file.stat().st_size / (1024 * 1024)  # MB
-                    if file_size < 1:
-                        st.write(f"({assay_file.stat().st_size / 1024:.1f} KB)")
-                    else:
-                        st.write(f"({file_size:.1f} MB)")
+                    st.write(f"({file_size_label(assay_file)})")
                 with col3:
                     with open(assay_file, "rb") as f:
                         st.download_button(
                             label="⬇️ Download",
-                            data=f.read(),
+                            data=f,
                             file_name=assay_file.name,
                             key=f"assay_{assay_file.name}",
                             use_container_width=True,
