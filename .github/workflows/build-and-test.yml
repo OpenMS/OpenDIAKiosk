@@ -169,7 +169,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image (simple variant; routing is image-agnostic)
-        run: docker build -t openms-streamlit:test -f Dockerfile_simple .
+        run: docker build -t openms-streamlit:test -f Dockerfile .
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
