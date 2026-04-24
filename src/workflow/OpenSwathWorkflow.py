@@ -24,6 +24,11 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.common.workspace_files import (
+    archive_needs_refresh,
+    build_zip_archive,
+    total_size_label,
+)
 from .ParameterManager import ParameterManager
 from .WorkflowManager import WorkflowManager
 
@@ -919,58 +924,170 @@ class OpenSwathWorkflow(WorkflowManager):
     # ------------------------------------------------------------------
     # Results display
 
+    def _result_bundle_specs(self, results_dir: Path) -> list[dict[str, object]]:
+        workspace_slug = self._workspace_dir.name.replace(" ", "_")
+        debug_files = self._debug_output_matches(results_dir)
+
+        bundles = [
+            {
+                "id": "quant-results",
+                "title": "Quantification tables",
+                "description": (
+                    "Primary end-user outputs: long identification table plus "
+                    "precursor, peptide, and protein matrices."
+                ),
+                "files": [
+                    results_dir / _PY_OUT,
+                    results_dir / _PY_MATRIX_OUTS["precursor"],
+                    results_dir / _PY_MATRIX_OUTS["peptide"],
+                    results_dir / _PY_MATRIX_OUTS["protein"],
+                ],
+                "archive_name": f"{workspace_slug}_openswath_quant_tables.zip",
+                "advanced": False,
+            },
+            {
+                "id": "transition-libraries",
+                "title": "Transition libraries",
+                "description": (
+                    "Upstream spectral-library outputs that can be reused as peptide "
+                    "query / transition inputs."
+                ),
+                "files": [
+                    results_dir / "insilico" / _EPQP_OUT,
+                    results_dir / "osag" / _OSAG_OUT,
+                    results_dir / "osdg" / _OSDG_OUT,
+                ],
+                "archive_name": (
+                    f"{workspace_slug}_openswath_transition_libraries.zip"
+                ),
+                "advanced": False,
+            },
+            {
+                "id": "feature-database",
+                "title": "Feature database (.osw)",
+                "description": (
+                    "OpenSwath feature store for debugging, inspection, and "
+                    "developer workflows."
+                ),
+                "files": [results_dir / _OSW_OUT],
+                "archive_name": f"{workspace_slug}_openswath_feature_database.zip",
+                "advanced": True,
+            },
+            {
+                "id": "chromatograms-debug",
+                "title": "Chromatograms and debug outputs",
+                "description": (
+                    "XIC / mobilogram exports plus calibration and diagnostic side-products."
+                ),
+                "files": [
+                    results_dir / _OSW_XIC_OUT,
+                    results_dir / _OSW_XIM_OUT,
+                    *debug_files,
+                ],
+                "archive_name": f"{workspace_slug}_openswath_debug_outputs.zip",
+                "advanced": True,
+            },
+        ]
+
+        available_bundles: list[dict[str, object]] = []
+        for bundle in bundles:
+            files = [Path(path) for path in bundle["files"] if Path(path).exists()]
+            if not files:
+                continue
+            bundle_copy = dict(bundle)
+            bundle_copy["files"] = files
+            available_bundles.append(bundle_copy)
+
+        return available_bundles
+
+    def _render_result_bundle(
+        self, results_dir: Path, bundle: dict[str, object]
+    ) -> None:
+        files: list[Path] = bundle["files"]
+        bundle_id = str(bundle["id"])
+        archive_dir = results_dir / "download-archives"
+        archive_path = archive_dir / f"{bundle_id}.zip"
+
+        ready_key = f"{self.workflow_dir.resolve()}::bundle::{bundle_id}::ready"
+        toggle_key = f"{ready_key}::prepare"
+
+        if archive_needs_refresh(files, archive_path):
+            st.session_state[ready_key] = False
+
+        col_a, col_b = st.columns([4.2, 1.2])
+        col_a.markdown(f"**{bundle['title']}**")
+        col_a.caption(
+            f"{bundle['description']} {len(files)} file(s) • {total_size_label(files)}"
+        )
+
+        button_placeholder = col_b.empty()
+        if st.session_state.get(ready_key, False) and archive_path.exists():
+            with open(archive_path, "rb") as fh:
+                button_placeholder.download_button(
+                    "Download ⬇️",
+                    data=fh,
+                    file_name=str(bundle["archive_name"]),
+                    use_container_width=True,
+                    key=f"download_bundle::{bundle_id}",
+                )
+        else:
+            button_label = "Refresh Download" if archive_path.exists() else "Prepare Download"
+            if button_placeholder.button(
+                button_label,
+                use_container_width=True,
+                key=toggle_key,
+            ):
+                with st.spinner("Building archive…"):
+                    build_zip_archive(files, archive_path, relative_to=results_dir)
+                st.session_state[ready_key] = True
+                st.rerun()
+
+        with st.expander(f"Files in {bundle['title']}", expanded=False):
+            for path in files:
+                try:
+                    rel_path = path.relative_to(results_dir)
+                except ValueError:
+                    rel_path = path.name
+                st.caption(f"• `{rel_path}`")
+
     def results(self) -> None:
-        """Display output files with download buttons."""
-        import streamlit as st
+        """Display grouped output bundles with on-demand archive creation."""
 
         results_dir = self.workflow_dir / "results"
-        output_candidates = {
-            "EasyPQP library": results_dir / "insilico" / _EPQP_OUT,
-            "OSAG assay targets": results_dir / "osag" / _OSAG_OUT,
-            "OSDG targets + decoys": results_dir / "osdg" / _OSDG_OUT,
-            "OpenSWATH features (.osw)": results_dir / _OSW_OUT,
-            "OpenSWATH chromatograms (.xic)": results_dir / _OSW_XIC_OUT,
-            "OpenSWATH mobilograms (.xim)": results_dir / _OSW_XIM_OUT,
-            "PyProphet results (.tsv)": results_dir / _PY_OUT,
-            "PyProphet precursor matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["precursor"],
-            "PyProphet peptide matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["peptide"],
-            "PyProphet protein matrix (.tsv)": results_dir / _PY_MATRIX_OUTS["protein"],
-        }
+        bundles = self._result_bundle_specs(results_dir)
 
-        any_output = False
-        for label, path in output_candidates.items():
-            if path.exists():
-                any_output = True
-                size_kb = path.stat().st_size / 1024
-                col_a, col_b = st.columns([4, 1])
-                col_a.markdown(f"**{label}** — `{path.name}` ({size_kb:.1f} KB)")
-                with open(path, "rb") as fh:
-                    col_b.download_button(
-                        "⬇️ Download",
-                        data=fh,
-                        file_name=path.name,
-                        key=f"dl_osw_{path.name}",
-                    )
-
-        debug_prefixes = [
-            ("OpenSWATH IM calibration debug (.txt)", _OSW_DEBUG_IM_OUT),
-            ("OpenSWATH m/z calibration debug (.txt)", _OSW_DEBUG_MZ_OUT),
-            ("OpenSWATH iRT transform debug (.trafoXML)", _OSW_DEBUG_IRT_TRAFO_OUT),
-            ("OpenSWATH iRT chromatogram debug (.mzML)", _OSW_DEBUG_IRT_MZML_OUT),
-        ]
-        for label, suffix in debug_prefixes:
-            for path in sorted(results_dir.glob(f"*{suffix}")):
-                any_output = True
-                size_kb = path.stat().st_size / 1024
-                col_a, col_b = st.columns([4, 1])
-                col_a.markdown(f"**{label}** — `{path.name}` ({size_kb:.1f} KB)")
-                with open(path, "rb") as fh:
-                    col_b.download_button(
-                        "⬇️ Download",
-                        data=fh,
-                        file_name=path.name,
-                        key=f"dl_osw_{path.name}",
-                    )
-
-        if not any_output:
+        if not bundles:
             st.info("No output files yet — run the workflow above to generate results.")
+            return
+
+        st.caption(
+            "Archives are prepared on demand from disk so large result sets are not "
+            "loaded into memory during page render."
+        )
+
+        primary_bundles = [bundle for bundle in bundles if not bundle["advanced"]]
+        advanced_bundles = [bundle for bundle in bundles if bundle["advanced"]]
+
+        if primary_bundles:
+            st.markdown("**Primary Downloads**")
+            for bundle in primary_bundles:
+                self._render_result_bundle(results_dir, bundle)
+
+        if advanced_bundles:
+            state_key = f"{self.workflow_dir.resolve()}::show_advanced_downloads"
+            show_advanced = bool(st.session_state.get(state_key, False))
+            toggle_label = (
+                "Hide Advanced Downloads" if show_advanced else "Show Advanced Downloads"
+            )
+            if st.button(toggle_label, key=f"{state_key}::toggle"):
+                st.session_state[state_key] = not show_advanced
+                st.rerun()
+
+            if show_advanced:
+                st.markdown("**Advanced Downloads**")
+                st.caption(
+                    "Developer-oriented artifacts: the `.osw` feature database, "
+                    "chromatograms, mobilograms, and calibration/debug outputs."
+                )
+                for bundle in advanced_bundles:
+                    self._render_result_bundle(results_dir, bundle)
