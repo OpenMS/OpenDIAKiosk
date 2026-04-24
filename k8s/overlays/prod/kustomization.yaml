@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../../base
 
+components:
+  - ../../components/memory-tier-high
+
 namePrefix: opendiakiosk-
 
 commonLabels:
