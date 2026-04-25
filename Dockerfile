@@ -140,10 +140,21 @@ RUN set -eux; \
         echo "Editable install completed."; \
     fi
 
+# Check to see if pyOpenMS can be imported and print its version.
+RUN set -eux; \
+    source /root/miniforge3/bin/activate streamlit-env; \
+    python -c "import pyopenms; print('pyOpenMS version:', pyopenms.__version__)"
+
 # Install other dependencies (excluding pyopenms)
 COPY requirements.txt ./requirements.txt 
 RUN grep -Ev '^pyopenms([=<>!~].*)?$' requirements.txt > requirements_cleaned.txt && mv requirements_cleaned.txt requirements.txt
 RUN pip install -r requirements.txt
+
+# Check to see if the same pyOpenMS version is still installed after installing other dependencies.
+RUN set -eux; \
+    source /root/miniforge3/bin/activate streamlit-env; \
+    python -c "import pyopenms; print('pyOpenMS version after installing other dependencies:', pyopenms.__version__)"
+
 
 WORKDIR /
 RUN mkdir openms
