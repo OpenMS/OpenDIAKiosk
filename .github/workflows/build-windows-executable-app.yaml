@@ -279,6 +279,9 @@ jobs:
         echo 'REM Set OpenMS data path for TOPP tools' >> ${{ env.APP_NAME }}.bat
         echo 'set OPENMS_DATA_PATH=%~dp0share\OpenMS' >> ${{ env.APP_NAME }}.bat
         echo '' >> ${{ env.APP_NAME }}.bat
+        echo 'REM Add Python executables/scripts to PATH' >> ${{ env.APP_NAME }}.bat
+        echo 'set "PATH=%~dp0python-${{ env.PYTHON_VERSION }}\Lib\site-packages\bin;%PATH%"' >> ${{ env.APP_NAME }}.bat
+        echo '' >> ${{ env.APP_NAME }}.bat
         echo 'REM Add each subfolder in share\OpenMS\THIRDPARTY to PATH' >> ${{ env.APP_NAME }}.bat
         echo 'for /D %%D in ("%OPENMS_DATA_PATH%\THIRDPARTY\*") do (' >> ${{ env.APP_NAME }}.bat
         echo '    set "PATH=!PATH!;%%D"' >> ${{ env.APP_NAME }}.bat
@@ -291,6 +294,7 @@ jobs:
         echo 'copy /Y ".streamlit\credentials.toml" "%USERPROFILE%\.streamlit\credentials.toml" > nul' >> ${{ env.APP_NAME }}.bat
         echo '' >> ${{ env.APP_NAME }}.bat
         echo 'start /min .\python-${{ env.PYTHON_VERSION }}\python -m streamlit run app.py local' >> ${{ env.APP_NAME }}.bat
+        echo '
 
     - name: Create All-in-one executable folder
       run: |
