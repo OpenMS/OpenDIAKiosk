@@ -109,6 +109,10 @@ class EasyPQPWorkflow(WorkflowManager):
                     str(output_file),
                 ]
 
+                # For windows, click based apps need to start with "python"
+                if easypqp_cmd.lower().endswith(".exe"):
+                    cmd.insert(0, "python")
+
                 # Run command via executor
                 cmd_str = " ".join(cmd)
                 self.logger.log(f"Full command: {cmd_str}")
@@ -150,6 +154,12 @@ class EasyPQPWorkflow(WorkflowManager):
             "--output_file",
             str(output_file),
         ]
+
+        # For windows, click based apps need to start with "python"
+        if easypqp_cmd.lower().endswith(".exe"):
+            cmd.insert(0, "python")
+
+
 
         # Database parameters
         if params.get("generate_decoys"):
