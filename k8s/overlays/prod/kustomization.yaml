@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../../base
 
+components:
+  - ../../components/memory-tier-high
+
 namePrefix: opendiakiosk-
 
 commonLabels:
@@ -21,7 +24,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/routes/0/match
-        value: Host(`opendia.webapps.openms.de`) && PathPrefix(`/`)
+        value: (Host(`opendia.webapps.openms.de`) || Host(`opendia.webapps.openms.org`)) && PathPrefix(`/`)
       - op: replace
         path: /spec/routes/0/services/0/name
         value: opendiakiosk-streamlit

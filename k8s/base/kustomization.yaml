@@ -9,9 +9,11 @@ resources:
   - redis.yaml
   - workspace-pvc.yaml
   - kiosk-pvc.yaml
+  - streamlit-secrets.yaml
   - streamlit-deployment.yaml
   - streamlit-service.yaml
   - rq-worker-deployment.yaml
   - ingress.yaml
   - traefik-ingressroute.yaml
   - cleanup-cronjob.yaml
+  - limitrange.yaml
