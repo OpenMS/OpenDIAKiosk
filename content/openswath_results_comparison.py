@@ -29,6 +29,12 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from src.common.common import page_setup
+from src.common.standalone_report import (
+    ReportFigure,
+    ReportSection,
+    ReportTable,
+    render_report_downloads,
+)
 
 
 page_setup()
@@ -77,6 +83,7 @@ comparison_upload_root = (
     workspace_dir / "openswath-workflow" / "results" / "comparison_uploads"
 )
 standard_results_dir_name = Path("openswath-workflow", "results")
+comparison_report_sections: list[ReportSection] = []
 
 
 def _path_label(path_str: str | None) -> str:
@@ -1424,6 +1431,173 @@ def _baseline_intensity_scatter_figure(
     return fig
 
 
+def _comparison_summary_bar_payload(
+    summary_df: pd.DataFrame,
+    entity_label: str,
+    color: str,
+) -> dict[str, object]:
+    return {
+        "dataframe": summary_df.copy(),
+        "x_col": "experiment_name",
+        "series": [
+            {
+                "column": "entity_count",
+                "label": "Present in experiment",
+                "color": color,
+            },
+            {
+                "column": "additional_in_union",
+                "label": "Additional in union",
+                "color": color,
+                "alpha": 0.22,
+                "hatch": "///",
+                "edgecolor": color,
+            },
+        ],
+        "xlabel": "Experiment",
+        "ylabel": f"# unique {entity_label}",
+        "xtick_rotation": 25,
+        "top_annotation_col": "total_union",
+        "top_annotation_format": "{:,.0f}",
+        "inner_annotation_col": "entity_count",
+        "inner_annotation_format": "{:,.0f}",
+    }
+
+
+def _comparison_jaccard_payload(set_map: dict[str, set[str]]) -> dict[str, object]:
+    return {
+        "set_map": {str(name): set(values) for name, values in set_map.items()},
+        "label_order": list(set_map.keys()),
+        "xlabel": "Experiment",
+        "ylabel": "Experiment",
+    }
+
+
+def _baseline_overlap_payload(
+    overlap_df: pd.DataFrame,
+    baseline_name: str,
+    entity_label: str,
+    color: str,
+) -> dict[str, object]:
+    annotation_texts = [
+        "J=n/a" if pd.isna(value) else f"J={float(value):.2f}"
+        for value in overlap_df["jaccard"]
+    ]
+    return {
+        "dataframe": overlap_df.copy(),
+        "x_col": "experiment_name",
+        "series": [
+            {
+                "column": "shared",
+                "label": f"Shared with {baseline_name}",
+                "color": color,
+            },
+            {
+                "column": "baseline_only",
+                "label": f"Only in {baseline_name}",
+                "color": "#CBD5E1",
+                "edgecolor": "#CBD5E1",
+            },
+            {
+                "column": "experiment_only",
+                "label": "Only in experiment",
+                "color": "#F59E0B",
+                "edgecolor": "#F59E0B",
+            },
+        ],
+        "xlabel": "Experiment",
+        "ylabel": f"# {entity_label}",
+        "xtick_rotation": 25,
+        "annotation_texts": annotation_texts,
+    }
+
+
+def _unique_origin_payload(
+    summary_df: pd.DataFrame,
+    entity_label: str,
+) -> dict[str, object]:
+    return {
+        "dataframe": summary_df.copy(),
+        "x_col": "experiment_name",
+        "series": [
+            {
+                "column": "library_unique_count",
+                "label": "Absent from all other libraries",
+                "color": "#94A3B8",
+                "edgecolor": "#94A3B8",
+            },
+            {
+                "column": "library_shared_missed_count",
+                "label": "Present in other libraries, not identified elsewhere",
+                "color": "#F59E0B",
+                "edgecolor": "#F59E0B",
+            },
+        ],
+        "xlabel": "Experiment",
+        "ylabel": f"# uniquely identified {entity_label}",
+        "xtick_rotation": 25,
+        "top_annotation_col": "unique_identified_count",
+        "top_annotation_format": "{:,.0f}",
+    }
+
+
+def _comparison_violin_payload(
+    dataframe: pd.DataFrame,
+    value_col: str,
+    yaxis_title: str,
+) -> dict[str, object]:
+    return {
+        "dataframe": dataframe.copy(),
+        "group_col": "experiment_name",
+        "value_col": value_col,
+        "order": dataframe["experiment_name"].drop_duplicates().astype(str).tolist(),
+        "xlabel": "Experiment",
+        "ylabel": yaxis_title,
+        "xtick_rotation": 25,
+    }
+
+
+def _baseline_intensity_scatter_payload(
+    baseline_df: pd.DataFrame,
+    compare_df: pd.DataFrame,
+    baseline_name: str,
+    compare_name: str,
+    entity_label: str,
+) -> dict[str, object] | None:
+    baseline_working = baseline_df.copy()
+    compare_working = compare_df.copy()
+    baseline_working["entity_id"] = baseline_working["entity_id"].astype(str)
+    compare_working["entity_id"] = compare_working["entity_id"].astype(str)
+
+    merged = baseline_working.merge(
+        compare_working,
+        on="entity_id",
+        how="inner",
+        suffixes=("_baseline", "_compare"),
+    )
+    if merged.empty:
+        return None
+
+    merged = merged.rename(
+        columns={
+            "mean_log2_intensity_baseline": "baseline_log2",
+            "mean_log2_intensity_compare": "compare_log2",
+        }
+    )
+    merged["delta_log2"] = merged["compare_log2"] - merged["baseline_log2"]
+    return {
+        "dataframe": merged[["baseline_log2", "compare_log2", "delta_log2"]].copy(),
+        "x_col": "baseline_log2",
+        "y_col": "compare_log2",
+        "color_col": "delta_log2",
+        "xlabel": f"{baseline_name} mean log2 intensity ({entity_label})",
+        "ylabel": f"{compare_name} mean log2 intensity ({entity_label})",
+        "colorbar_label": "Delta log2",
+        "identity_line": True,
+        "cmap": "RdBu_r",
+    }
+
+
 st.title("🧪 OpenSwath Results Comparison")
 st.markdown(
     """
@@ -1599,10 +1773,24 @@ for bundle_id in selected_ids:
 selected_experiments = _resolve_selected_experiments(selected_ids, combined_catalog)
 
 st.markdown("##### Selected experiment summary")
+selected_summary_df = _selected_summary_rows(selected_experiments)
 st.dataframe(
-    _selected_summary_rows(selected_experiments),
+    selected_summary_df,
     use_container_width=True,
     hide_index=True,
+)
+comparison_report_sections.append(
+    ReportSection(
+        title="Selected Experiment Bundles",
+        description="Experiment bundles included in the current comparison session.",
+        tables=[
+            ReportTable(
+                title="Selected experiment summary",
+                dataframe=selected_summary_df,
+                max_rows=None,
+            )
+        ],
+    )
 )
 
 if len(selected_experiments) < 2:
@@ -1688,40 +1876,45 @@ else:
             )
             metric_c.metric("Union", f"{union_count:,}")
 
+            overlap_plot = overlap_fig
+            union_plot = _union_bar_figure(
+                summary_df,
+                entity_label=entity_label,
+                color=color,
+                title=f"Union coverage across experiments ({entity_label})",
+            )
             plot_col_a, plot_col_b = st.columns(2)
-            plot_col_a.plotly_chart(overlap_fig, use_container_width=True)
+            plot_col_a.plotly_chart(overlap_plot, use_container_width=True)
             plot_col_b.plotly_chart(
-                _union_bar_figure(
-                    summary_df,
-                    entity_label=entity_label,
-                    color=color,
-                    title=f"Union coverage across experiments ({entity_label})",
-                ),
+                union_plot,
                 use_container_width=True,
             )
             if overlap_note:
                 plot_col_a.caption(overlap_note)
 
+            jaccard_plot = _jaccard_heatmap_figure(
+                set_map,
+                entity_label=entity_label,
+                title=f"Jaccard similarity across experiments ({entity_label})",
+            )
             detail_col_a, detail_col_b = st.columns(2)
             detail_col_a.plotly_chart(
-                _jaccard_heatmap_figure(
-                    set_map,
-                    entity_label=entity_label,
-                    title=f"Jaccard similarity across experiments ({entity_label})",
-                ),
+                jaccard_plot,
                 use_container_width=True,
             )
+            baseline_overlap_plot = None
             if overlap_summary_df.empty:
                 detail_col_b.info("A baseline comparison plot needs at least one non-baseline experiment.")
             else:
+                baseline_overlap_plot = _baseline_overlap_figure(
+                    overlap_summary_df,
+                    baseline_name=library_baseline_name,
+                    entity_label=entity_label,
+                    color=color,
+                    title=f"Baseline overlap vs {library_baseline_name}",
+                )
                 detail_col_b.plotly_chart(
-                    _baseline_overlap_figure(
-                        overlap_summary_df,
-                        baseline_name=library_baseline_name,
-                        entity_label=entity_label,
-                        color=color,
-                        title=f"Baseline overlap vs {library_baseline_name}",
-                    ),
+                    baseline_overlap_plot,
                     use_container_width=True,
                 )
                 detail_col_b.dataframe(
@@ -1755,6 +1948,109 @@ else:
                     use_container_width=True,
                     hide_index=True,
                 )
+
+            report_figures = [
+                ReportFigure(
+                    title=f"Target overlap across experiments ({entity_label})",
+                    figure=overlap_plot,
+                    caption=overlap_note,
+                    pdf_kind="set_overlap",
+                    pdf_payload={
+                        "set_map": {
+                            str(name): set(values)
+                            for name, values in set_map.items()
+                        },
+                        "max_intersections": 20,
+                    },
+                ),
+                ReportFigure(
+                    title=f"Union coverage across experiments ({entity_label})",
+                    figure=union_plot,
+                    pdf_kind="stacked_bar",
+                    pdf_payload=_comparison_summary_bar_payload(
+                        summary_df,
+                        entity_label,
+                        color,
+                    ),
+                ),
+                ReportFigure(
+                    title=f"Jaccard similarity across experiments ({entity_label})",
+                    figure=jaccard_plot,
+                    pdf_kind="jaccard_heatmap",
+                    pdf_payload=_comparison_jaccard_payload(set_map),
+                ),
+            ]
+            if baseline_overlap_plot is not None:
+                report_figures.append(
+                    ReportFigure(
+                        title=f"Baseline overlap vs {library_baseline_name}",
+                        figure=baseline_overlap_plot,
+                        pdf_kind="stacked_bar",
+                        pdf_payload=_baseline_overlap_payload(
+                            overlap_summary_df,
+                            library_baseline_name,
+                            entity_label,
+                            color,
+                        ),
+                    )
+                )
+
+            library_summary_table = pd.DataFrame(
+                [
+                    {
+                        "Experiments": len(set_map),
+                        f"Mean {entity_label} per experiment": f"{summary_df['entity_count'].mean():,.1f}",
+                        "Union": union_count,
+                        "Baseline": library_baseline_name,
+                    }
+                ]
+            )
+            report_tables = [
+                ReportTable(
+                    title="Library comparison summary",
+                    dataframe=library_summary_table,
+                    max_rows=None,
+                ),
+                ReportTable(
+                    title="Shared and unique analyte examples",
+                    dataframe=example_df,
+                    caption=(
+                        "Shared examples are present in every selected library. "
+                        "Unique examples are present in exactly one selected library."
+                    )
+                    if not example_df.empty
+                    else "No shared-by-all or unique analyte examples were found at this level.",
+                    max_rows=None,
+                ),
+            ]
+            if not overlap_summary_df.empty:
+                report_tables.append(
+                    ReportTable(
+                        title="Baseline overlap summary",
+                        dataframe=overlap_summary_df.rename(
+                            columns={
+                                "experiment_name": "Experiment",
+                                "shared": "Shared",
+                                "baseline_only": f"Only in {library_baseline_name}",
+                                "experiment_only": "Only in experiment",
+                                "jaccard": "Jaccard",
+                                "baseline_overlap_pct": f"% of {library_baseline_name}",
+                            }
+                        ),
+                        max_rows=None,
+                    )
+                )
+            comparison_report_sections.append(
+                ReportSection(
+                    title=f"Library Targets: {LEVEL_CONFIG[level]['title']}",
+                    description=(
+                        "Library target overlap across the selected experiment bundles. "
+                        "Only target entries (`DECOY = 0`) are included."
+                    ),
+                    figures=report_figures,
+                    tables=report_tables,
+                )
+            )
 
 st.markdown("---")
 st.subheader("5. Identification and Quantification")
@@ -1866,40 +2162,45 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
             f"{run_count_df['run_count'].median():.1f}",
         )
 
+        overlap_plot = overlap_fig
+        union_plot = _union_bar_figure(
+            summary_df,
+            entity_label=entity_label,
+            color=color,
+            title=f"Union coverage across experiments ({entity_label})",
+        )
         plot_col_a, plot_col_b = st.columns(2)
-        plot_col_a.plotly_chart(overlap_fig, use_container_width=True)
+        plot_col_a.plotly_chart(overlap_plot, use_container_width=True)
         plot_col_b.plotly_chart(
-            _union_bar_figure(
-                summary_df,
-                entity_label=entity_label,
-                color=color,
-                title=f"Union coverage across experiments ({entity_label})",
-            ),
+            union_plot,
             use_container_width=True,
         )
         if overlap_note:
             plot_col_a.caption(overlap_note)
 
+        jaccard_plot = _jaccard_heatmap_figure(
+            set_map,
+            entity_label=entity_label,
+            title=f"Jaccard similarity across experiments ({entity_label})",
+        )
         plot_col_c, plot_col_d = st.columns(2)
         plot_col_c.plotly_chart(
-            _jaccard_heatmap_figure(
-                set_map,
-                entity_label=entity_label,
-                title=f"Jaccard similarity across experiments ({entity_label})",
-            ),
+            jaccard_plot,
             use_container_width=True,
         )
+        baseline_overlap_plot = None
         if baseline_overlap_df.empty:
             plot_col_d.info("A baseline overlap view needs at least one non-baseline experiment.")
         else:
+            baseline_overlap_plot = _baseline_overlap_figure(
+                baseline_overlap_df,
+                baseline_name=level_baseline_name,
+                entity_label=entity_label,
+                color=color,
+                title=f"Identification overlap vs {level_baseline_name}",
+            )
             plot_col_d.plotly_chart(
-                _baseline_overlap_figure(
-                    baseline_overlap_df,
-                    baseline_name=level_baseline_name,
-                    entity_label=entity_label,
-                    color=color,
-                    title=f"Identification overlap vs {level_baseline_name}",
-                ),
+                baseline_overlap_plot,
                 use_container_width=True,
             )
 
@@ -1923,17 +2224,20 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                     "Missing library support for: "
                     + ", ".join(f"`{name}`" for name in missing_library_names)
                 )
+            unique_origin_df = pd.DataFrame()
+            unique_origin_plot = None
         else:
             unique_origin_df = _build_unique_identification_origin_summary(
                 set_map,
                 unique_origin_library_map,
             )
+            unique_origin_plot = _unique_identification_origin_figure(
+                unique_origin_df,
+                entity_label=entity_label,
+                title=f"Origin of uniquely identified {entity_label}",
+            )
             unique_origin_col_a.plotly_chart(
-                _unique_identification_origin_figure(
-                    unique_origin_df,
-                    entity_label=entity_label,
-                    title=f"Origin of uniquely identified {entity_label}",
-                ),
+                unique_origin_plot,
                 use_container_width=True,
             )
             unique_origin_col_b.dataframe(
@@ -1957,27 +2261,31 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
             )
 
         quant_col_a, quant_col_b = st.columns(2)
+        quant_plot = None
         if quant_df.empty:
             quant_col_a.info("No positive intensities were available for the log-intensity violin plot.")
         else:
+            quant_plot = _log_intensity_violin_figure(
+                quant_df,
+                entity_label=entity_label,
+                title=f"log2 intensity distribution across experiments ({entity_label})",
+            )
             quant_col_a.plotly_chart(
-                _log_intensity_violin_figure(
-                    quant_df,
-                    entity_label=entity_label,
-                    title=f"log2 intensity distribution across experiments ({entity_label})",
-                ),
+                quant_plot,
                 use_container_width=True,
             )
 
+        gcv_plot = None
         if cv_df.empty:
             quant_col_b.info("At least two quantified runs per entity are required to calculate geometric CV.")
         else:
+            gcv_plot = _gcv_violin_figure(
+                cv_df,
+                entity_label=entity_label,
+                title=f"Geometric CV distribution across experiments ({entity_label})",
+            )
             quant_col_b.plotly_chart(
-                _gcv_violin_figure(
-                    cv_df,
-                    entity_label=entity_label,
-                    title=f"Geometric CV distribution across experiments ({entity_label})",
-                ),
+                gcv_plot,
                 use_container_width=True,
             )
 
@@ -2008,6 +2316,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
         ]
         if not compare_candidates:
             summary_col_b.info("A baseline scatter plot needs at least one non-baseline experiment.")
+            scatter_plot = None
         else:
             compare_experiment_name = st.selectbox(
                 f"Scatter comparison against baseline ({LEVEL_CONFIG[level]['title']})",
@@ -2018,15 +2327,214 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
             compare_mean_df = mean_map.get(compare_experiment_name, pd.DataFrame())
             if baseline_mean_df.empty or compare_mean_df.empty:
                 summary_col_b.info("No shared quantified entities were available for the baseline scatter plot.")
+                scatter_plot = None
             else:
+                scatter_plot = _baseline_intensity_scatter_figure(
+                    baseline_df=baseline_mean_df,
+                    compare_df=compare_mean_df,
+                    baseline_name=level_baseline_name,
+                    compare_name=compare_experiment_name,
+                    entity_label=entity_label,
+                    title=f"Baseline mean intensity comparison ({entity_label})",
+                )
                 summary_col_b.plotly_chart(
-                    _baseline_intensity_scatter_figure(
-                        baseline_df=baseline_mean_df,
-                        compare_df=compare_mean_df,
-                        baseline_name=level_baseline_name,
-                        compare_name=compare_experiment_name,
-                        entity_label=entity_label,
-                        title=f"Baseline mean intensity comparison ({entity_label})",
-                    ),
+                    scatter_plot,
                     use_container_width=True,
                 )
+
+        report_figures = [
+            ReportFigure(
+                title=f"Identification overlap across experiments ({entity_label})",
+                figure=overlap_plot,
+                caption=overlap_note,
+                pdf_kind="set_overlap",
+                pdf_payload={
+                    "set_map": {
+                        str(name): set(values)
+                        for name, values in set_map.items()
+                    },
+                    "max_intersections": 20,
+                },
+            ),
+            ReportFigure(
+                title=f"Union coverage across experiments ({entity_label})",
+                figure=union_plot,
+                pdf_kind="stacked_bar",
+                pdf_payload=_comparison_summary_bar_payload(
+                    summary_df,
+                    entity_label,
+                    color,
+                ),
+            ),
+            ReportFigure(
+                title=f"Jaccard similarity across experiments ({entity_label})",
+                figure=jaccard_plot,
+                pdf_kind="jaccard_heatmap",
+                pdf_payload=_comparison_jaccard_payload(set_map),
+            ),
+        ]
+        if baseline_overlap_plot is not None:
+            report_figures.append(
+                ReportFigure(
+                    title=f"Identification overlap vs {level_baseline_name}",
+                    figure=baseline_overlap_plot,
+                    pdf_kind="stacked_bar",
+                    pdf_payload=_baseline_overlap_payload(
+                        baseline_overlap_df,
+                        level_baseline_name,
+                        entity_label,
+                        color,
+                    ),
+                )
+            )
+        if unique_origin_plot is not None:
+            report_figures.append(
+                ReportFigure(
+                    title=f"Origin of uniquely identified {entity_label}",
+                    figure=unique_origin_plot,
+                    pdf_kind="stacked_bar",
+                    pdf_payload=_unique_origin_payload(unique_origin_df, entity_label),
+                )
+            )
+        if quant_plot is not None:
+            report_figures.append(
+                ReportFigure(
+                    title=f"log2 intensity distribution across experiments ({entity_label})",
+                    figure=quant_plot,
+                    pdf_kind="violin",
+                    pdf_payload=_comparison_violin_payload(
+                        quant_df,
+                        "log2_intensity",
+                        f"log2 intensity ({entity_label})",
+                    ),
+                )
+            )
+        if gcv_plot is not None:
+            report_figures.append(
+                ReportFigure(
+                    title=f"Geometric CV distribution across experiments ({entity_label})",
+                    figure=gcv_plot,
+                    pdf_kind="violin",
+                    pdf_payload=_comparison_violin_payload(
+                        cv_df,
+                        "gcv_percent",
+                        f"Geometric CV (%) across runs for {entity_label}",
+                    ),
+                )
+            )
+        if scatter_plot is not None:
+            scatter_payload = _baseline_intensity_scatter_payload(
+                baseline_mean_df,
+                compare_mean_df,
+                level_baseline_name,
+                compare_experiment_name,
+                entity_label,
+            )
+            report_figures.append(
+                ReportFigure(
+                    title=f"Baseline mean intensity comparison ({entity_label})",
+                    figure=scatter_plot,
+                    pdf_kind="scatter",
+                    pdf_payload={} if scatter_payload is None else scatter_payload,
+                )
+            )
+
+        summary_metrics_table = pd.DataFrame(
+            [
+                {
+                    "Experiments": len(prepared_map),
+                    f"Mean {entity_label} per experiment": f"{summary_df['entity_count'].mean():,.1f}",
+                    "Union": union_count,
+                    "Median runs / experiment": f"{run_count_df['run_count'].median():.1f}",
+                    "Baseline": level_baseline_name,
+                }
+            ]
+        )
+        report_tables = [
+            ReportTable(
+                title="Result comparison summary",
+                dataframe=summary_metrics_table,
+                max_rows=None,
+            )
+        ]
+        if not baseline_overlap_df.empty:
+            report_tables.append(
+                ReportTable(
+                    title="Baseline identification overlap summary",
+                    dataframe=baseline_overlap_df.rename(
+                        columns={
+                            "experiment_name": "Experiment",
+                            "shared": "Shared",
+                            "baseline_only": f"Only in {level_baseline_name}",
+                            "experiment_only": "Only in experiment",
+                            "jaccard": "Jaccard",
+                            "baseline_overlap_pct": f"% of {level_baseline_name}",
+                        }
+                    ),
+                    max_rows=None,
+                )
+            )
+        if not unique_origin_df.empty:
+            report_tables.append(
+                ReportTable(
+                    title="Unique identification origin summary",
+                    dataframe=unique_origin_df.rename(
+                        columns={
+                            "experiment_name": "Experiment",
+                            "unique_identified_count": "Unique identified",
+                            "library_unique_count": "Absent from other libraries",
+                            "library_shared_missed_count": "Present in other libraries",
+                            "library_unique_pct": "% absent from other libraries",
+                            "library_shared_missed_pct": "% present in other libraries",
+                        }
+                    ),
+                    max_rows=None,
+                )
+            )
+        if not intensity_summary_df.empty:
+            report_tables.append(
+                ReportTable(
+                    title="Baseline intensity summary",
+                    dataframe=intensity_summary_df.rename(
+                        columns={
+                            "experiment_name": "Experiment",
+                            "shared_quantified": "Shared quantified",
+                            "baseline_only": f"Only in {level_baseline_name}",
+                            "experiment_only": "Only in experiment",
+                            "pearson_r": "Pearson r",
+                            "median_abs_log2_delta": "Median |delta log2|",
+                        }
+                    ),
+                    max_rows=None,
+                )
+            )
+
+        comparison_report_sections.append(
+            ReportSection(
+                title=f"Identification and Quantification: {LEVEL_CONFIG[level]['title']}",
+                description=(
+                    "Identification overlap and quantitative consistency across the selected experiment bundles."
+                ),
+                figures=report_figures,
+                tables=report_tables,
+            )
+        )
+
+comparison_report_metadata = {
+    "Workspace": workspace_dir.name,
+    "Baseline experiment": baseline_display_name,
+    "Selected experiments": ", ".join(
+        experiment["display_name"] for experiment in selected_experiments
+    ),
+}
+comparison_report_basename = (
+    f"{workspace_dir.name.replace(' ', '_')}_openswath_results_comparison_report"
+)
+render_report_downloads(
+    report_key="openswath_results_comparison_report",
+    title="OpenSwath Results Comparison Report",
+    basename=comparison_report_basename,
+    sections=comparison_report_sections,
+    subtitle="Standalone export from the OpenSwath Results Comparison page.",
+    metadata=comparison_report_metadata,
+)

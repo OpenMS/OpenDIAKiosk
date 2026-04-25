@@ -19,6 +19,12 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.common.common import page_setup
+from src.common.standalone_report import (
+    ReportFigure,
+    ReportSection,
+    ReportTable,
+    render_report_downloads,
+)
 
 
 page_setup()
@@ -57,6 +63,7 @@ LEVEL_CONFIG: dict[str, dict[str, object]] = {
 
 workspace_dir = Path(st.session_state.get("workspace", ".")).resolve()
 workflow_results_dir = workspace_dir / "openswath-workflow" / "results"
+viewer_report_sections: list[ReportSection] = []
 
 
 def _path_label(path_str: str | None) -> str:
@@ -666,6 +673,121 @@ def _render_run_mapping(run_map: pd.DataFrame) -> None:
         )
 
 
+def _run_set_map(run_sets: list[dict[str, object]]) -> dict[str, set[str]]:
+    return {
+        str(item["run_label"]): set(str(value) for value in item["ids"])
+        for item in run_sets
+    }
+
+
+def _score_histogram_payload(
+    score_df: pd.DataFrame,
+    cutoff_score: float | None,
+    cutoff_qvalue: float | None,
+) -> dict[str, object]:
+    plotting = score_df.loc[score_df["SCORE"].notna()].copy()
+    plotting["target_class"] = (
+        plotting["DECOY"].fillna(0).astype(int).map({0: "Target", 1: "Decoy"})
+    )
+    plotting["target_class"] = plotting["target_class"].fillna("Unknown")
+    return {
+        "dataframe": plotting[["SCORE", "target_class"]].copy(),
+        "value_col": "SCORE",
+        "group_col": "target_class",
+        "order": ["Target", "Decoy", "Unknown"],
+        "bins": 70,
+        "color_map": {
+            "Target": "#0F766E",
+            "Decoy": "#C2410C",
+            "Unknown": "#64748B",
+        },
+        "xlabel": "MS2 score",
+        "ylabel": "Count",
+        "vline": cutoff_score,
+        "annotation_text": (
+            None
+            if cutoff_score is None or cutoff_qvalue is None
+            else f"Closest target q-value to 1%: score={cutoff_score:.3f}, q={cutoff_qvalue:.4f}"
+        ),
+    }
+
+
+def _summary_bar_payload(
+    summary_df: pd.DataFrame,
+    entity_label: str,
+    color: str,
+) -> dict[str, object]:
+    return {
+        "dataframe": summary_df.copy(),
+        "x_col": "run_label",
+        "series": [
+            {
+                "column": "run_count",
+                "label": "Detected in run",
+                "color": color,
+            },
+            {
+                "column": "additional_in_union",
+                "label": "Additional in union",
+                "color": color,
+                "alpha": 0.22,
+                "hatch": "///",
+                "edgecolor": color,
+            },
+        ],
+        "xlabel": "Run",
+        "ylabel": f"# unique {entity_label}",
+        "top_annotation_col": "total_union",
+        "top_annotation_format": "{:,.0f}",
+        "inner_annotation_col": "run_count",
+        "inner_annotation_format": "{:,.0f}",
+    }
+
+
+def _run_jaccard_payload(run_sets: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "set_map": _run_set_map(run_sets),
+        "label_order": [str(item["run_label"]) for item in run_sets],
+        "xlabel": "Run",
+        "ylabel": "Run",
+    }
+
+
+def _run_violin_payload(
+    quant_df: pd.DataFrame,
+    entity_label: str,
+    color: str,
+) -> dict[str, object]:
+    run_labels = quant_df["run_label"].drop_duplicates().astype(str).tolist()
+    return {
+        "dataframe": quant_df.copy(),
+        "group_col": "run_label",
+        "value_col": "log2_intensity",
+        "order": run_labels,
+        "color_map": {run_label: color for run_label in run_labels},
+        "xlabel": "Run",
+        "ylabel": f"log2 intensity ({entity_label})",
+    }
+
+
+def _gcv_histogram_payload(
+    cv_df: pd.DataFrame,
+    entity_label: str,
+    median_gcv: float | None,
+) -> dict[str, object]:
+    return {
+        "dataframe": cv_df.copy(),
+        "value_col": "gcv_percent",
+        "bins": 60,
+        "xlabel": f"Geometric CV (%) across runs for {entity_label}",
+        "ylabel": "Count",
+        "vline": median_gcv,
+        "annotation_text": (
+            None if median_gcv is None else f"Median gCV = {median_gcv:.1f}%"
+        ),
+    }
+
+
 st.title("📈 OpenSwath Results Viewer")
 st.markdown(
     "Review saved OpenSwath OSW score distributions and PyProphet result exports "
@@ -751,6 +873,48 @@ if selected_osw:
             None if cutoff_qvalue is None else f"q={cutoff_qvalue:.4f}",
         )
         st.plotly_chart(cutoff_fig, use_container_width=True)
+
+        qc_metrics_df = pd.DataFrame(
+            [
+                {
+                    "Rank-1 targets": target_count,
+                    "Rank-1 decoys": decoy_count,
+                    "Closest 1% cutoff score": (
+                        "n/a" if cutoff_score is None else f"{cutoff_score:.3f}"
+                    ),
+                    "Closest 1% cutoff q-value": (
+                        "n/a" if cutoff_qvalue is None else f"{cutoff_qvalue:.4f}"
+                    ),
+                }
+            ]
+        )
+        viewer_report_sections.append(
+            ReportSection(
+                title="Scores and Quality Control",
+                description=(
+                    "Rank-1 MS2 score distribution from the selected OSW file."
+                ),
+                figures=[
+                    ReportFigure(
+                        title="Rank-1 MS2 score distribution",
+                        figure=cutoff_fig,
+                        pdf_kind="histogram",
+                        pdf_payload=_score_histogram_payload(
+                            score_df,
+                            cutoff_score,
+                            cutoff_qvalue,
+                        ),
+                    )
+                ],
+                tables=[
+                    ReportTable(
+                        title="Quality control summary",
+                        dataframe=qc_metrics_df,
+                        max_rows=None,
+                    )
+                ],
+            )
+        )
 else:
     st.info("Select an OSW file above to inspect feature score distributions.")
 
@@ -800,26 +964,83 @@ elif tab_specs:
                 metric_b.metric("Mean precursors per run", f"{mean_run_count:,.1f}")
                 metric_c.metric("Union precursors", f"{union_count:,}")
 
+                union_fig = _union_bar_figure(
+                    summary_df,
+                    entity_label="precursors",
+                    color="#0F766E",
+                    title="Per-run and union precursor IDs",
+                )
+                jaccard_fig = _jaccard_heatmap_figure(
+                    run_sets,
+                    entity_label="precursors",
+                    title="Jaccard similarity of precursor IDs across runs",
+                )
                 plot_col_a, plot_col_b = st.columns(2)
                 plot_col_a.plotly_chart(
-                    _union_bar_figure(
-                        summary_df,
-                        entity_label="precursors",
-                        color="#0F766E",
-                        title="Per-run and union precursor IDs",
-                    ),
+                    union_fig,
                     use_container_width=True,
                 )
                 plot_col_b.plotly_chart(
-                    _jaccard_heatmap_figure(
-                        run_sets,
-                        entity_label="precursors",
-                        title="Jaccard similarity of precursor IDs across runs",
-                    ),
+                    jaccard_fig,
                     use_container_width=True,
                 )
                 st.caption(
                     "This fallback view uses the long OpenSwath/PyProphet TSV because no precursor matrix was selected."
+                )
+
+                long_summary_df = pd.DataFrame(
+                    [
+                        {
+                            "Runs": len(summary_df),
+                            "Mean precursors per run": f"{mean_run_count:,.1f}",
+                            "Union precursors": union_count,
+                        }
+                    ]
+                )
+                viewer_report_sections.append(
+                    ReportSection(
+                        title="Identification and Quantification: Long TSV fallback",
+                        description=(
+                            "Fallback overview derived from the long OpenSwath/PyProphet TSV because "
+                            "no precursor matrix was selected."
+                        ),
+                        figures=[
+                            ReportFigure(
+                                title="Per-run and union precursor IDs",
+                                figure=union_fig,
+                                pdf_kind="stacked_bar",
+                                pdf_payload=_summary_bar_payload(
+                                    summary_df,
+                                    "precursors",
+                                    "#0F766E",
+                                ),
+                            ),
+                            ReportFigure(
+                                title="Jaccard similarity of precursor IDs across runs",
+                                figure=jaccard_fig,
+                                pdf_kind="jaccard_heatmap",
+                                pdf_payload=_run_jaccard_payload(run_sets),
+                            ),
+                        ],
+                        tables=[
+                            ReportTable(
+                                title="Fallback summary",
+                                dataframe=long_summary_df,
+                                max_rows=None,
+                            ),
+                            ReportTable(
+                                title="Run label mapping",
+                                dataframe=run_map.rename(
+                                    columns={
+                                        "run_label": "Run",
+                                        "run_basename": "Filename",
+                                        "run_name": "Full path / source",
+                                    }
+                                ),
+                                max_rows=None,
+                            ),
+                        ],
+                    )
                 )
                 continue
 
@@ -852,51 +1073,130 @@ elif tab_specs:
                 f"Union {entity_label}: {union_count:,}",
             )
 
+            union_fig = _union_bar_figure(
+                summary_df,
+                entity_label=entity_label,
+                color=color,
+                title=f"Per-run and union {entity_label}",
+            )
+            jaccard_fig = _jaccard_heatmap_figure(
+                run_sets,
+                entity_label=entity_label,
+                title=f"Jaccard similarity of {entity_label} across runs",
+            )
             plot_col_a, plot_col_b = st.columns(2)
             plot_col_a.plotly_chart(
-                _union_bar_figure(
-                    summary_df,
-                    entity_label=entity_label,
-                    color=color,
-                    title=f"Per-run and union {entity_label}",
-                ),
+                union_fig,
                 use_container_width=True,
             )
             plot_col_b.plotly_chart(
-                _jaccard_heatmap_figure(
-                    run_sets,
-                    entity_label=entity_label,
-                    title=f"Jaccard similarity of {entity_label} across runs",
-                ),
+                jaccard_fig,
                 use_container_width=True,
             )
 
             quant_col_a, quant_col_b = st.columns(2)
+            violin_fig = None
             if quant_df.empty:
                 quant_col_a.info("No positive intensities were available for the violin plot.")
             else:
+                violin_fig = _log_intensity_violin_figure(
+                    quant_df,
+                    entity_label=entity_label,
+                    color=color,
+                    title=f"log2 intensity distribution for {entity_label}",
+                )
                 quant_col_a.plotly_chart(
-                    _log_intensity_violin_figure(
-                        quant_df,
-                        entity_label=entity_label,
-                        color=color,
-                        title=f"log2 intensity distribution for {entity_label}",
-                    ),
+                    violin_fig,
                     use_container_width=True,
                 )
 
+            gcv_fig = None
             if cv_df.empty:
                 quant_col_b.info("At least two quantified runs are required to calculate geometric CV.")
             else:
+                gcv_fig = _gcv_distribution_figure(
+                    cv_df,
+                    entity_label=entity_label,
+                    color=color,
+                    title=f"Geometric CV distribution for {entity_label}",
+                )
                 quant_col_b.plotly_chart(
-                    _gcv_distribution_figure(
-                        cv_df,
-                        entity_label=entity_label,
-                        color=color,
-                        title=f"Geometric CV distribution for {entity_label}",
-                    ),
+                    gcv_fig,
                     use_container_width=True,
                 )
+
+            figures = [
+                ReportFigure(
+                    title=f"Per-run and union {entity_label}",
+                    figure=union_fig,
+                    pdf_kind="stacked_bar",
+                    pdf_payload=_summary_bar_payload(summary_df, entity_label, color),
+                ),
+                ReportFigure(
+                    title=f"Jaccard similarity of {entity_label} across runs",
+                    figure=jaccard_fig,
+                    pdf_kind="jaccard_heatmap",
+                    pdf_payload=_run_jaccard_payload(run_sets),
+                ),
+            ]
+            if violin_fig is not None:
+                figures.append(
+                    ReportFigure(
+                        title=f"log2 intensity distribution for {entity_label}",
+                        figure=violin_fig,
+                        pdf_kind="violin",
+                        pdf_payload=_run_violin_payload(quant_df, entity_label, color),
+                    )
+                )
+            if gcv_fig is not None:
+                figures.append(
+                    ReportFigure(
+                        title=f"Geometric CV distribution for {entity_label}",
+                        figure=gcv_fig,
+                        pdf_kind="histogram",
+                        pdf_payload=_gcv_histogram_payload(cv_df, entity_label, median_gcv),
+                    )
+                )
+
+            summary_metrics_df = pd.DataFrame(
+                [
+                    {
+                        "Runs": len(summary_df),
+                        f"Mean {entity_label} per run": f"{mean_run_count:,.1f}",
+                        "Union": union_count,
+                        "Median gCV": (
+                            "n/a" if median_gcv is None else f"{median_gcv:.1f}%"
+                        ),
+                    }
+                ]
+            )
+            viewer_report_sections.append(
+                ReportSection(
+                    title=f"Identification and Quantification: {LEVEL_CONFIG[level]['title']}",
+                    description=(
+                        f"Run-level overlap, intensity distribution, and variability summary for {entity_label}."
+                    ),
+                    figures=figures,
+                    tables=[
+                        ReportTable(
+                            title="Summary metrics",
+                            dataframe=summary_metrics_df,
+                            max_rows=None,
+                        ),
+                        ReportTable(
+                            title="Run label mapping",
+                            dataframe=run_map.rename(
+                                columns={
+                                    "run_label": "Run",
+                                    "run_basename": "Filename",
+                                    "run_name": "Full path / source",
+                                }
+                            ),
+                            max_rows=None,
+                        ),
+                    ],
+                )
+            )
 else:
     long_df = _load_tsv_dataframe(selected_long_tsv, _file_mtime_ns(selected_long_tsv))
     prepared = _prepare_long_results(long_df)
@@ -914,21 +1214,96 @@ else:
         metric_b.metric("Mean precursors per run", f"{mean_run_count:,.1f}")
         metric_c.metric("Union precursors", f"{union_count:,}")
 
+        union_fig = _union_bar_figure(
+            summary_df,
+            entity_label="precursors",
+            color="#0F766E",
+            title="Per-run and union precursor IDs",
+        )
+        jaccard_fig = _jaccard_heatmap_figure(
+            run_sets,
+            entity_label="precursors",
+            title="Jaccard similarity of precursor IDs across runs",
+        )
         plot_col_a, plot_col_b = st.columns(2)
         plot_col_a.plotly_chart(
-            _union_bar_figure(
-                summary_df,
-                entity_label="precursors",
-                color="#0F766E",
-                title="Per-run and union precursor IDs",
-            ),
+            union_fig,
             use_container_width=True,
         )
         plot_col_b.plotly_chart(
-            _jaccard_heatmap_figure(
-                run_sets,
-                entity_label="precursors",
-                title="Jaccard similarity of precursor IDs across runs",
-            ),
+            jaccard_fig,
             use_container_width=True,
         )
+
+        fallback_summary_df = pd.DataFrame(
+            [
+                {
+                    "Runs": len(summary_df),
+                    "Mean precursors per run": f"{mean_run_count:,.1f}",
+                    "Union precursors": union_count,
+                }
+            ]
+        )
+        viewer_report_sections.append(
+            ReportSection(
+                title="Identification and Quantification: Long TSV fallback",
+                description=(
+                    "Fallback overview derived from the long OpenSwath/PyProphet TSV because "
+                    "no matrix result file was selected."
+                ),
+                figures=[
+                    ReportFigure(
+                        title="Per-run and union precursor IDs",
+                        figure=union_fig,
+                        pdf_kind="stacked_bar",
+                        pdf_payload=_summary_bar_payload(
+                            summary_df,
+                            "precursors",
+                            "#0F766E",
+                        ),
+                    ),
+                    ReportFigure(
+                        title="Jaccard similarity of precursor IDs across runs",
+                        figure=jaccard_fig,
+                        pdf_kind="jaccard_heatmap",
+                        pdf_payload=_run_jaccard_payload(run_sets),
+                    ),
+                ],
+                tables=[
+                    ReportTable(
+                        title="Fallback summary",
+                        dataframe=fallback_summary_df,
+                        max_rows=None,
+                    ),
+                    ReportTable(
+                        title="Run label mapping",
+                        dataframe=run_map.rename(
+                            columns={
+                                "run_label": "Run",
+                                "run_basename": "Filename",
+                                "run_name": "Full path / source",
+                            }
+                        ),
+                        max_rows=None,
+                    ),
+                ],
+            )
+        )
+
+report_metadata = {
+    "Workspace": workspace_dir.name,
+    "OSW File": _path_label(selected_osw),
+    "Long TSV": _path_label(selected_long_tsv),
+    "Precursor Matrix": _path_label(selected_precursor_matrix),
+    "Peptide Matrix": _path_label(selected_peptide_matrix),
+    "Protein Matrix": _path_label(selected_protein_matrix),
+}
+report_basename = f"{workspace_dir.name.replace(' ', '_')}_openswath_results_viewer_report"
+render_report_downloads(
+    report_key="openswath_results_viewer_report",
+    title="OpenSwath Results Viewer Report",
+    basename=report_basename,
+    sections=viewer_report_sections,
+    subtitle="Standalone export from the OpenSwath Results Viewer page.",
+    metadata=report_metadata,
+)
