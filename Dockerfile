@@ -69,6 +69,7 @@ RUN mamba --version
 # Setup mamba environment.
 RUN mamba create -n streamlit-env python=3.11
 RUN echo "mamba activate streamlit-env" >> ~/.bashrc
+ENV STREAMLIT_ENV_PREFIX=/root/miniforge3/envs/streamlit-env
 SHELL ["/bin/bash", "--rcfile", "~/.bashrc"]
 SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
 
@@ -142,6 +143,7 @@ RUN set -eux; \
 
 # Check to see if pyOpenMS can be imported and print its version.
 RUN set -eux; \
+    export LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms-build/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"; \
     source /root/miniforge3/bin/activate streamlit-env; \
     python -c "import pyopenms; print('pyOpenMS version:', pyopenms.__version__)"
 
@@ -152,6 +154,7 @@ RUN pip install -r requirements.txt
 
 # Check to see if the same pyOpenMS version is still installed after installing other dependencies.
 RUN set -eux; \
+    export LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms-build/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"; \
     source /root/miniforge3/bin/activate streamlit-env; \
     python -c "import pyopenms; print('pyOpenMS version after installing other dependencies:', pyopenms.__version__)"
 
@@ -165,7 +168,7 @@ ENV PATH="/openms/bin/:${PATH}"
 
 # Copy TOPP tools bin directory, add to PATH.
 RUN cp -r openms-build/lib /openms/lib
-ENV LD_LIBRARY_PATH="/openms/lib/:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms/lib"
 
 # Copy share folder, add to PATH, remove source directory.
 RUN cp -r OpenMS/share/OpenMS /openms/share
