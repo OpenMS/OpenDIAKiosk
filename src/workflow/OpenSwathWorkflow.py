@@ -462,6 +462,12 @@ class OpenSwathWorkflow(WorkflowManager):
             self.logger.log("❌ 'easypqp' not found in PATH.")
             return False
 
+        # If windows executable add .exe on it
+        if exe.lower().endswith(".exe"):
+            exe_arr = ["python", exe]
+        else:
+            exe_arr = [ exe ]
+
         fasta_name = cfg.get("fasta", "")
         if not fasta_name:
             self.logger.log("❌ No FASTA file configured for EasyPQP.")
@@ -481,9 +487,8 @@ class OpenSwathWorkflow(WorkflowManager):
         )
         if config_path.exists():
             self.logger.log(f"Using EasyPQP config from workspace: {config_path}")
-            cmd = [
-                exe,
-                "insilico-library",
+            cmd = exe_arr + \
+                [ "insilico-library",
                 "--fasta",
                 str(fasta_path),
                 "--output_file",
@@ -587,11 +592,16 @@ class OpenSwathWorkflow(WorkflowManager):
         if not exe:
             self.logger.log("❌ 'pyprophet' not found in PATH.")
             return False
+        # If windows executable add .exe on it
+        if exe.lower().endswith(".exe"):
+            exe_arr = ["python", exe]
+        else:
+            exe_arr = [ exe ]
 
         tsv_cfg = self._load_tool_config(
             "tools-configs", "pyprophet", "pyprophet_export_tsv_config.json"
         )
-        tsv_cmd = [exe, "export", "tsv", "--in", osw_in, "--out", tsv_out]
+        tsv_cmd = exe_arr + [ "export", "tsv", "--in", osw_in, "--out", tsv_out]
         if tsv_cfg.get("format"):
             tsv_cmd += ["--format", str(tsv_cfg["format"])]
         if tsv_cfg.get("csv"):
@@ -637,7 +647,7 @@ class OpenSwathWorkflow(WorkflowManager):
             "tools-configs", "pyprophet", "pyprophet_score_config.json"
         )
         score_cmd = self._append_pyprophet_config_options(
-            [exe, "score", "--in", osw_in],
+            exe_arr + [ "score", "--in", osw_in],
             score_cfg,
             "pyprophet_score_config.json",
             exclude_keys={"in", "out", "help"},
@@ -648,7 +658,7 @@ class OpenSwathWorkflow(WorkflowManager):
             "tools-configs", "pyprophet", "pyprophet_infer_peptide_config.json"
         )
         for context in self._selected_pyprophet_contexts(infer_peptide_cfg):
-            cmd = [exe, "infer", "peptide", "--in", osw_in, "--context", context]
+            cmd = exe_arr + [ "infer", "peptide", "--in", osw_in, "--context", context]
             cmd = self._append_pyprophet_config_options(
                 cmd,
                 infer_peptide_cfg,
@@ -661,7 +671,7 @@ class OpenSwathWorkflow(WorkflowManager):
             "tools-configs", "pyprophet", "pyprophet_infer_protein_config.json"
         )
         for context in self._selected_pyprophet_contexts(infer_protein_cfg):
-            cmd = [exe, "infer", "protein", "--in", osw_in, "--context", context]
+            cmd = exe_arr + [ "infer", "protein", "--in", osw_in, "--context", context]
             cmd = self._append_pyprophet_config_options(
                 cmd,
                 infer_protein_cfg,
@@ -681,9 +691,8 @@ class OpenSwathWorkflow(WorkflowManager):
             if level in _PY_MATRIX_OUTS
         ]
         for level in matrix_levels:
-            cmd = [
-                exe,
-                "export",
+            cmd = exe_arr + \
+                ["export",
                 "matrix",
                 "--in",
                 osw_in,

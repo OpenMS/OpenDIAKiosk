@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 import json
 import streamlit as st
-
+import shutil
 
 class PyProphetCLI:
     """
@@ -17,6 +17,7 @@ class PyProphetCLI:
         self.workflow_dir = Path(workflow_dir)
         self.executor = executor  # CommandExecutor for running via workflow
         self.logger = logger
+        self.pyprophet_cmd = None
 
     def save_params_to_json(self, command: str, params: dict):
         """Save PyProphet command params to workspace params.json"""
@@ -26,10 +27,22 @@ class PyProphetCLI:
         data["pyprophet"][command] = params
         with open(self.pm.params_file, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=4)
+            
+    def find_pyprophet_cmd(self):
+        """ find the PyProphet command, if it is an .exe then we need to add 'python' before it to execute properly """
+        if self.pyprophet_cmd is not None:
+            return
+        else:
+            self.pyprophet_cmd = shutil.which("pyprophet")
+            if self.pyprophet_cmd.lower().endswith(".exe"):
+                pyprophet_cmd = ["python", self.pyprophet_cmd]
+            else:
+                pyprophet_cmd = [ self.pyprophet_cmd ]
 
     def build_score_command(self, params: dict) -> list:
         """Build pyprophet score command from params dict"""
-        cmd = ["pyprophet", "score"]
+        self.find_pyprophet_cmd()
+        cmd = self.pyprophet_cmd  + ["score"]
         if params.get("in"):
             cmd += ["--in", params["in"]]
         if params.get("out"):
@@ -143,7 +156,8 @@ class PyProphetCLI:
 
     def build_infer_command(self, level: str, params: dict) -> list:
         """Build pyprophet infer peptide/protein command"""
-        cmd = ["pyprophet", "infer", level]
+        self.find_pyprophet_cmd()
+        cmd = self.pyprophet_cmd  + ["infer", level]
         if params.get("in"):
             cmd += ["--in", params["in"]]
         if params.get("out"):
@@ -177,7 +191,8 @@ class PyProphetCLI:
 
     def build_export_command(self, params: dict) -> list:
         """Build pyprophet export tsv command"""
-        cmd = ["pyprophet", "export", "tsv"]
+        self.find_pyprophet_cmd()
+        cmd = self.pyprophet_cmd + ["export", "tsv"]
         if params.get("in"):
             cmd += ["--in", params["in"]]
         if params.get("out"):
