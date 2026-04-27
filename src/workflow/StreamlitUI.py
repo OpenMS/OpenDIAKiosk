@@ -1902,7 +1902,7 @@ class StreamlitUI:
         if not st.session_state.settings.get("online_deployment", False):
             max_threads_config = st.session_state.settings.get("max_threads", {})
             default_threads = max_threads_config.get("local")
-            if not default_threads or int(default_threads) <= 0:
+            if default_threads is None or default_threads == -1:
                 default_threads = os.cpu_count() or 1
             self.input_widget(
                 key="max_threads",

@@ -38,8 +38,8 @@ class CommandExecutor:
         In local mode, reads from parameter manager (persisted params.json).
         In online mode, uses the configured value directly from settings.
 
-        For local mode, a missing or non-positive setting auto-scales to
-        ``os.cpu_count()`` so the workflow uses every available core.
+        For local mode, a missing setting or an explicit ``-1`` auto-scales
+        to ``os.cpu_count()`` so the workflow uses every available core.
 
         Returns:
             int: Maximum number of threads to use for parallel processing (minimum 1).
@@ -51,11 +51,11 @@ class CommandExecutor:
             value = max_threads_config.get("online", 2)
         else:
             default = max_threads_config.get("local")
-            if not default or int(default) <= 0:
+            if default is None or default == -1:
                 default = os.cpu_count() or 1
             params = self.parameter_manager.get_parameters_from_json()
             value = params.get("max_threads", default)
-            if not value or int(value) <= 0:
+            if value is None or value == -1:
                 value = os.cpu_count() or 1
 
         return max(1, int(value))
