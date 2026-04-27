@@ -23,7 +23,7 @@
     "test": true,
     "workspaces_dir": "..",
     "queue_settings": {
-        "default_timeout": 7200,
+        "default_timeout": 108000,
         "result_ttl": 86400
     },
     "demo_workspaces": {
