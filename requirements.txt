@@ -144,9 +144,9 @@ rq>=1.16.0
 
 # DIA stuff
 easypqp==0.1.59
-easypqp_rs==0.1.9
+easypqp_rs==0.1.13
 redeem_properties==0.1.1
 scipy==1.17.1
 scikit-learn==1.8.0
 xgboost-cpu==3.2.0
-pyprophet==3.0.11
+pyprophet==3.0.14
