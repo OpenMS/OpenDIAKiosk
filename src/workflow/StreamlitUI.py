@@ -1901,14 +1901,16 @@ class StreamlitUI:
         # Display threads configuration for local mode only
         if not st.session_state.settings.get("online_deployment", False):
             max_threads_config = st.session_state.settings.get("max_threads", {})
-            default_threads = max_threads_config.get("local", 4)
+            default_threads = max_threads_config.get("local")
+            if not default_threads or int(default_threads) <= 0:
+                default_threads = os.cpu_count() or 1
             self.input_widget(
                 key="max_threads",
-                default=default_threads,
+                default=int(default_threads),
                 name="Threads",
                 widget_type="number",
                 min_value=1,
-                help="Maximum threads for parallel processing. Threads are distributed between parallel commands and per-tool thread allocation.",
+                help="Maximum threads for parallel processing. Defaults to all detected CPU cores. Threads are distributed between parallel commands and per-tool thread allocation.",
             )
 
         # Display preset buttons if presets are available for this workflow

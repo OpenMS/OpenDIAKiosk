@@ -33,7 +33,7 @@
         ]
     },
     "max_threads": {
-        "local": 10,
+        "local": null,
         "online": 2
     }
 }
