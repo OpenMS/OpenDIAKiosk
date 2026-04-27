@@ -34,6 +34,6 @@
     },
     "max_threads": {
         "local": null,
-        "online": 2
+        "online": null
     }
 }
