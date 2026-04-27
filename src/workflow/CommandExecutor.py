@@ -38,20 +38,59 @@ class CommandExecutor:
         In local mode, reads from parameter manager (persisted params.json).
         In online mode, uses the configured value directly from settings.
 
+        In either mode, a missing setting or an explicit ``-1`` auto-scales
+        to all CPU cores available to the running process so the workflow
+        uses every core on the host (or worker pod).
+
         Returns:
             int: Maximum number of threads to use for parallel processing (minimum 1).
         """
-        settings = st.session_state.get("settings", {})
-        max_threads_config = settings.get("max_threads", {"local": 4, "online": 2})
+        settings = self._load_settings()
+        max_threads_config = settings.get("max_threads", {})
 
         if settings.get("online_deployment", False):
-            value = max_threads_config.get("online", 2)
+            value = max_threads_config.get("online")
         else:
-            default = max_threads_config.get("local", 4)
+            default = max_threads_config.get("local")
             params = self.parameter_manager.get_parameters_from_json()
             value = params.get("max_threads", default)
 
+        if value is None or value == -1:
+            value = self._available_cpu_count()
+
         return max(1, int(value))
+
+    @staticmethod
+    def _load_settings() -> dict:
+        """
+        Return the settings dict, preferring the live Streamlit session
+        (frontend) and falling back to ``settings.json`` on disk so RQ worker
+        processes — which never populate ``st.session_state`` — still see the
+        deployment-merged configuration mounted into the worker container.
+        """
+        try:
+            cached = st.session_state.get("settings")
+            if cached:
+                return cached
+        except Exception:
+            pass
+        try:
+            with open("settings.json", "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _available_cpu_count() -> int:
+        """
+        Return the number of CPU cores available to this process. Prefers
+        ``sched_getaffinity`` so cpuset-pinned containers report their actual
+        allotment instead of the underlying host's full core count.
+        """
+        try:
+            return len(os.sched_getaffinity(0))
+        except AttributeError:
+            return os.cpu_count() or 1
 
     def run_multiple_commands(self, commands: list[str], cwd: str | None = None) -> bool:
         """
