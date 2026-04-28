@@ -16,7 +16,7 @@ ARG PORT=8501
 # Streamlit app GitHub user name (to download artifact from).
 ARG GITHUB_USER=OpenMS
 # Streamlit app GitHub repository name (to download artifact from).
-ARG GITHUB_REPO=streamlit-template
+ARG GITHUB_REPO=OpenDIAKiosk
 
 USER root
 
@@ -298,7 +298,7 @@ RUN jq '.online_deployment = true' settings.json > tmp.json && mv tmp.json setti
 ARG GITHUB_TOKEN
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
         echo "GITHUB_TOKEN is set, proceeding to download the release asset..."; \
-        gh release download -R ${GITHUB_USER}/${GITHUB_REPO} -p "OpenMS-App.zip" -D /app; \
+        gh release download -R ${GITHUB_USER}/${GITHUB_REPO} -p "OpenDIAKiosk.zip" -D /app; \
     else \
         echo "GITHUB_TOKEN is not set, skipping the release asset download."; \
     fi
