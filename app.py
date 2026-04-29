@@ -38,6 +38,13 @@ if __name__ == "__main__":
     )
 
     pages = {
+        "Welcome": [
+            st.Page(
+                Path("content", "quickstart.py"),
+                title="Quickstart",
+                icon="👋",
+            ),
+        ],
         "Getting started with DIA": [
             st.Page(
                 Path("content", "dia_00_concepts.py"),
