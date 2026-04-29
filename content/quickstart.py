@@ -1,163 +1,127 @@
 """
-Main page for the OpenMS Template App.
+OpenDIAKiosk Quickstart Page.
 
-This module sets up and displays the Streamlit app for the OpenMS Template App.
-It includes:
-- Setting the app title.
-- Displaying a description.
-- Providing a download button for the Windows version of the app.
-
-Usage:
-Run this script to launch the OpenMS Template App.
-
-Note:
-- If run in local mode, the CAPTCHA control is not applied.
-- If not in local mode, CAPTCHA control is applied to verify the user.
-
-Returns:
-    None
+Landing page that briefly introduces OpenDIAKiosk and offers a styled
+Windows download card when the packaged executable is available.
 """
 
 from pathlib import Path
+
 import streamlit as st
 
-from src.common.common import page_setup, v_space
+from src.common.common import page_setup
+
+WINDOWS_APP_PATH = Path("/app/OpenDIAKiosk.zip")
+
+
+@st.cache_resource
+def load_windows_app_bytes() -> bytes | None:
+    if WINDOWS_APP_PATH.exists():
+        return WINDOWS_APP_PATH.read_bytes()
+    return None
+
+
+def render_windows_download_box(app_bytes: bytes) -> None:
+    """Render a styled offline-download card for the Windows app."""
+    container_key = "windows_download_container"
+
+    st.markdown(
+        """
+        <h4 style="color: #6c757d; margin-bottom: 1rem; font-size: 1.3rem; font-weight: 600; text-align: center;">
+            Want to run free and open DIA analysis offline?
+        </h4>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(key=container_key):
+        st.markdown(
+            """
+            <h4 style="color: #6c757d; margin-bottom: 0.75rem; font-size: 1.1rem; font-weight: 600;">
+                OpenDIAKiosk for Windows
+            </h4>
+            <p style="color: #6c757d; margin-bottom: 1rem;">
+                You can download an offline version for Windows systems below.
+            </p>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        cols = st.columns([2, 3, 2])
+        with cols[1]:
+            st.download_button(
+                label="📥 Download for Windows",
+                data=app_bytes,
+                file_name="OpenDIAKiosk.zip",
+                mime="application/zip",
+                type="secondary",
+                use_container_width=True,
+                help="Download OpenDIAKiosk for Windows systems",
+            )
+
+        st.markdown(
+            """
+            <div style="text-align: center; margin-top: 1rem; color: #6c757d;">
+                Extract the zip file and run the installer (.msi) to install the app.
+                Launch using the desktop icon after installation.<br>
+                Even offline, it's still a web app - just packaged so you can use it without an internet connection.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        f"""
+        <style>
+        .st-key-{container_key} {{
+            background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f4 100%) !important;
+            border: 1px solid #e0e0e0 !important;
+            border-radius: 8px !important;
+            padding: 1.5rem !important;
+            margin: 1rem 0 !important;
+            text-align: center !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        }}
+
+        .st-key-{container_key} > div {{
+            background: transparent !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 page_setup(page="main")
 
-st.markdown("# 👋 Quick Start")
-st.markdown("## Template for OpenMS web apps using the **streamlit** framework")
-c1, c2 = st.columns(2)
-c1.markdown(
-    """
-## ⭐ Features
-       
-- Simple workflows with **pyOpenMS** 
-- Complex workflows utilizing **OpenMS TOPP tools** with parallel execution.
-- Workspaces for user data with unique shareable IDs
-- Persistent parameters and input files within a workspace
-- Captcha control
-- Packaged executables for Windows
-- Deploy multiple apps easily with [docker-compose](https://github.com/OpenMS/streamlit-deployment)
-"""
-)
-v_space(1, c2)
-c2.image("assets/openms_transparent_bg_logo.svg", width=300)
-if Path("OpenMS-App.zip").exists():
-    st.subheader(
-        """
-Download the latest version for Windows here by clicking the button below.
-"""
-    )
-    with open("OpenMS-App.zip", "rb") as file:
-        st.download_button(
-            label="Download for Windows",
-            data=file,
-            file_name="OpenMS-App.zip",
-            mime="archive/zip",
-            type="primary",
-        )
-    st.markdown(
-        """
-Extract the zip file and run the installer (.msi) file to install the app. The app can then be launched using the corresponding desktop icon.
-"""
-    )
+st.markdown("# OpenDIAKiosk")
 
-st.markdown("## 📖 Documentation")
-st.markdown(
-    f"""
-This template app includes documentation for **users** including **installation** and introduction to template specific concepts such as **workspaces** and developers with detailed instructions on **how to create and deploy your own app** based on this template.
-"""
-)
-st.page_link(
-    "content/documentation.py",
-    label="Read documentation here, select chapter in the content menu.",
-    icon="➡️",
-)
-
-st.markdown(
-    """##  Workspaces and Settings
-The **sidebar** contains to boxes, one for **workspaces** (in local mode) and one for **settings**.
-
-🖥️ **Workspaces** store user inputs, parameters and results for a specific session or analysis task.
-
-In **online mode** where the app is hosted on a remote server the workspace has a unique identifier number embedded within the URL. To share your data analysis with collaboration partners simply share the URL.
-
-In **local mode** where the app is run locally on a PC (e.g. via Windows executable) the user can create and delete separate workspaces for different projects.
-
-⚙️ **Settings** contain global settings which are relevant for all pages, such as the image export format.
-"""
-)
-
-
-st.markdown("## Example pages: workflows, visualization and more")
-st.markdown(
-    """
-This app serves both as documentation and showcase what's possible with OpenMS web apps. 
-            
-In general there are two options for building workflows.
-            
-### 1. 🚀 **TOPP Workflow Framework**
-            
-Use this option if you want a standardized framework for building your workflow.
-
-- **Pre-defined user interface** all in one streamlit page with all steps on different pages:
-    - **File Upload**: upload, download and delete input files
-    - **Configure**: Automatically display input widgets for all paramters in TOPP tools and custom Python scripts
-    - **Run**: Start and stop workflow execution, includes continous log
-    - **Results**: Interactive result dashboard
-- **Write less code**: everything from file upload, input widget generation and execution of tools is handled via convenient functions
-- **Fast and performant workflows**: Automatic parallel execution of TOPP tools ensures great speed, comparable with workflows written in bash
-- **Ideal for longer workflows**: Close the app and come back to the still running or finish workflow the next day, by entering your workspace again.
-"""
-)
-st.page_link(
-    "content/documentation.py",
-    label="Check out extensive documentation on the TOPP tool framework.",
-    icon="➡️",
-)
+windows_app_bytes = load_windows_app_bytes()
+if windows_app_bytes is not None:
+    render_windows_download_box(windows_app_bytes)
 
 st.markdown(
     """
-### 2. 🐍 **Flexible, custom workflow with pyOpenMS on multiple pages**
-            
-Use this option if you want full control over your workflow implementation and user interface.
+OpenDIAKiosk is an interactive Streamlit app for **Data-Independent Acquisition (DIA)**
+mass spectrometry. It combines hands-on teaching of DIA concepts with a practical
+**OpenSWATH** analysis pipeline built on the OpenMS TOPP tools.
 
-Uses the integrated parameter handling with global parameters across pages, including uploaded files.
-            
-To get an idea check out the following pages from the example worklfow (file upload first!).
+- 📚 **Learn** the concepts behind DIA: targeted data extraction, peak picking,
+  feature scoring, and statistical validation.
+- 🧪 **Build** spectral libraries with in-silico prediction, filtering, and decoy generation.
+- 🔁 **Analyze** your own DIA data end-to-end with the OpenSwath workflow and
+  inspect results in interactive viewers.
 """
 )
-st.page_link(
-    "content/file_upload.py",
-    label="Upload your own mzML files or use the provided example data set.",
-    icon="➡️",
-)
-st.page_link(
-    "content/raw_data_viewer.py",
-    label="Visualize mzML file content in an interactive dashboard.",
-    icon="➡️",
-)
-st.page_link(
-    "content/run_example_workflow.py",
-    label="Run a small example workflow with mzML files and check out results.",
-    icon="➡️",
-)
 
-st.markdown(
-    """
-### Other Topics
-            
-Includes other example pages which are independent to showcase other functionalities.
-"""
+st.markdown("## Get Started")
+st.page_link(
+    "content/dia_00_concepts.py",
+    label="Learn DIA Concepts",
+    icon="📚",
 )
 st.page_link(
-    "content/simple_workflow.py",
-    label="A very simple worklfow explaining the concepts of data caching in streamlit.",
-    icon="➡️",
-)
-st.page_link(
-    "content/run_subprocess.py",
-    label="How to run any command line tool as subprocess from within the OpenMS web app.",
-    icon="➡️",
+    "content/openswath_file_upload.py",
+    label="Analyze DIA data (OpenSwathWorkflow)",
+    icon="🔁",
 )
