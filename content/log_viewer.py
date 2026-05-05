@@ -27,9 +27,28 @@ def find_tool_dirs(base: Path) -> List[Path]:
         return []
 
 
+def is_valid_workspace_path(path: Path, allowed_roots: List[Path]) -> bool:
+    """
+    Verify that a path is within one of the allowed workspace root directories.
+    This prevents directory traversal attacks and restricts access to designated workspaces.
+    """
+    try:
+        path_resolved = path.resolve()
+        for root in allowed_roots:
+            root_resolved = root.resolve()
+            try:
+                path_resolved.relative_to(root_resolved)
+                return True
+            except ValueError:
+                pass
+        return False
+    except Exception:
+        return False
+
+
 # Default guess for workspaces root
 def discover_roots() -> List[Path]:
-    """Discover available workspace roots - improved for server deployments"""
+    """Discover available workspace roots - restricted to designated directories only"""
     roots: List[Path] = []
 
     # Derive workspaces base dir the same way as page_setup() does
@@ -39,37 +58,52 @@ def discover_roots() -> List[Path]:
         workspaces_dir = settings.get("workspaces_dir", "..")
         repo_name = settings.get("repository-name", "")
 
-        if workspaces_dir and location == "local":
-            default_ws = Path(
-                workspaces_dir,
-                "workspaces-" + repo_name if repo_name else "workspaces",
-            ).resolve()
+        # For server deployments, use only configured directories
+        if workspaces_dir and location != "local":
+            # Server mode: strict configuration-based discovery
+            try:
+                default_ws = Path(
+                    workspaces_dir,
+                    "workspaces-" + repo_name if repo_name else "workspaces",
+                ).resolve()
+                if default_ws.exists() and default_ws.is_dir():
+                    roots.append(default_ws)
+            except Exception:
+                pass
         else:
-            default_ws = Path("..").resolve()
-    except Exception:
-        default_ws = Path("..").resolve()
+            # Local mode: more flexible discovery
+            try:
+                default_ws = Path(
+                    workspaces_dir,
+                    "workspaces-" + repo_name if repo_name else "workspaces",
+                ).resolve()
+            except Exception:
+                default_ws = Path("../workspaces").resolve()
 
-    # Add likely candidates if they exist
-    candidates = [
-        default_ws,
-        default_ws / "default",
-        Path("example-data").resolve() / "workspaces",
-    ]
+            # Add likely candidates if they exist
+            candidates = [
+                default_ws,
+                default_ws / "default",
+                Path("example-data").resolve() / "workspaces",
+            ]
 
-    for c in candidates:
-        try:
-            c_resolved = c.resolve()
-            if c_resolved.exists() and c_resolved.is_dir():
-                roots.append(c_resolved)
-        except Exception:
-            pass
+            for c in candidates:
+                try:
+                    c_resolved = c.resolve()
+                    if c_resolved.exists() and c_resolved.is_dir():
+                        roots.append(c_resolved)
+                except Exception:
+                    pass
 
-    # Also include any sibling directories starting with 'workspaces' next to the configured path
-    try:
-        parent = default_ws.parent
-        for p in parent.iterdir():
-            if p.is_dir() and p.name.startswith("workspaces"):
-                roots.append(p.resolve())
+            # Also include any sibling directories starting with 'workspaces'
+            try:
+                parent = default_ws.parent
+                for p in parent.iterdir():
+                    if p.is_dir() and p.name.startswith("workspaces"):
+                        roots.append(p.resolve())
+            except Exception:
+                pass
+
     except Exception:
         pass
 
@@ -95,25 +129,6 @@ def discover_roots() -> List[Path]:
 
 
 root_choices = discover_roots()
-
-# Display available roots for debugging
-with st.expander("🔧 Troubleshooting: Discovered Workspace Roots"):
-    if root_choices:
-        st.success(f"✓ Found {len(root_choices)} workspace root(s):")
-        for i, root in enumerate(root_choices, 1):
-            st.code(str(root))
-    else:
-        st.warning("⚠️ No workspace roots found. Please check:")
-        st.write("""
-        1. **Configured directory**: Check `settings.json` for `workspaces_dir`
-        2. **Example paths**: Look for directories like:
-           - `../workspaces-OpenDIAKiosk`
-           - `../workspaces` 
-           - `example-data/workspaces`
-        3. **Server deployments**: Set `WORKSPACES_DIR` environment variable
-        4. **Permissions**: Ensure the app has read access to the workspace directory
-        """)
-    st.write(f"Current working directory: {Path.cwd()}")
 
 if root_choices:
     root_strs = [str(p) for p in root_choices]
@@ -143,15 +158,21 @@ if root_choices:
         "Workspaces root directory", root_strs, index=default_root_idx
     )
     base_dir = Path(selected_root)
+
+    # Security check: ensure selected root is valid
+    if not is_valid_workspace_path(base_dir, root_choices):
+        st.error("❌ Invalid workspace path selected. Access denied.")
+        st.stop()
 else:
-    st.error("❌ No workspace roots could be automatically discovered.")
-    default_root = Path(st.session_state.settings.get("workspaces_dir", ".."))
-    base_dir_input = st.text_input(
-        "Enter workspaces root directory manually",
-        value=str(default_root.resolve()),
-        help="Full path to the workspaces directory",
+    st.error(
+        "❌ No workspace directories are available. "
+        "Contact your administrator to configure workspace access."
     )
-    base_dir = Path(base_dir_input)
+    st.info(
+        "For security reasons, workspace access is restricted to configured directories. "
+        "This is expected behavior in a server deployment."
+    )
+    st.stop()
 
 tool_dirs = find_tool_dirs(base_dir)
 
@@ -212,6 +233,12 @@ tool_choice = st.selectbox(
     "Select tool / workspace folder", tool_names, index=default_tool_idx
 )
 selected_tool_dir = next((p for p in tool_dirs if p.name == tool_choice), tool_dirs[0])
+
+# Security check: ensure selected tool dir is within allowed roots
+if not is_valid_workspace_path(selected_tool_dir, root_choices):
+    st.error("❌ Invalid tool directory path. Access denied.")
+    st.stop()
+
 logs_dir = selected_tool_dir / "logs"
 
 # list available log files

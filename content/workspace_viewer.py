@@ -62,8 +62,27 @@ def is_excluded(name: str) -> bool:
     return False
 
 
+def is_valid_workspace_path(path: Path, allowed_roots: List[Path]) -> bool:
+    """
+    Verify that a path is within one of the allowed workspace root directories.
+    This prevents directory traversal attacks and restricts access to designated workspaces.
+    """
+    try:
+        path_resolved = path.resolve()
+        for root in allowed_roots:
+            root_resolved = root.resolve()
+            try:
+                path_resolved.relative_to(root_resolved)
+                return True
+            except ValueError:
+                pass
+        return False
+    except Exception:
+        return False
+
+
 def discover_roots() -> List[Path]:
-    """Discover available workspace roots"""
+    """Discover available workspace roots - restricted to designated directories only"""
     roots: List[Path] = []
     try:
         settings = st.session_state.settings
@@ -71,37 +90,51 @@ def discover_roots() -> List[Path]:
         workspaces_dir = settings.get("workspaces_dir", "..")
         repo_name = settings.get("repository-name", "")
 
-        # Try the configured workspaces directory
-        if workspaces_dir and location == "local":
-            default_ws = Path(
-                workspaces_dir,
-                "workspaces-" + repo_name if repo_name else "workspaces",
-            ).resolve()
+        # For server deployments, use only configured directories
+        if workspaces_dir and location != "local":
+            # Server mode: strict configuration-based discovery
+            try:
+                default_ws = Path(
+                    workspaces_dir,
+                    "workspaces-" + repo_name if repo_name else "workspaces",
+                ).resolve()
+                if default_ws.exists() and default_ws.is_dir():
+                    roots.append(default_ws)
+            except Exception:
+                pass
         else:
-            default_ws = Path("..").resolve()
-    except Exception:
-        default_ws = Path("..").resolve()
+            # Local mode: more flexible discovery
+            try:
+                default_ws = Path(
+                    workspaces_dir,
+                    "workspaces-" + repo_name if repo_name else "workspaces",
+                ).resolve()
+            except Exception:
+                default_ws = Path("../workspaces").resolve()
 
-    candidates = [
-        default_ws,
-        default_ws / "default",
-        Path("example-data").resolve() / "workspaces",
-    ]
+            candidates = [
+                default_ws,
+                default_ws / "default",
+                Path("example-data").resolve() / "workspaces",
+            ]
 
-    for c in candidates:
-        try:
-            c_resolved = c.resolve()
-            if c_resolved.exists() and c_resolved.is_dir():
-                roots.append(c_resolved)
-        except Exception:
-            pass
+            for c in candidates:
+                try:
+                    c_resolved = c.resolve()
+                    if c_resolved.exists() and c_resolved.is_dir():
+                        roots.append(c_resolved)
+                except Exception:
+                    pass
 
-    # Also check for workspace directories next to the configured path
-    try:
-        parent = default_ws.parent
-        for p in parent.iterdir():
-            if p.is_dir() and p.name.startswith("workspaces"):
-                roots.append(p.resolve())
+            # Also check for workspace directories next to the configured path
+            try:
+                parent = default_ws.parent
+                for p in parent.iterdir():
+                    if p.is_dir() and p.name.startswith("workspaces"):
+                        roots.append(p.resolve())
+            except Exception:
+                pass
+
     except Exception:
         pass
 
@@ -173,28 +206,45 @@ def build_ascii_tree(
     return tree_str
 
 
-# Select workspace root
+# Select workspace root - restricted access
 root_choices = discover_roots()
-if root_choices:
-    root_strs = [str(p) for p in root_choices]
-    selected_root = st.selectbox("Workspaces root directory", root_strs)
-    base_dir = Path(selected_root)
-else:
-    default_root = Path(st.session_state.settings.get("workspaces_dir", ".."))
-    base_dir_input = st.text_input("Workspaces root directory", value=str(default_root))
-    base_dir = Path(base_dir_input)
+
+if not root_choices:
+    st.error(
+        "❌ No workspace directories are available. "
+        "Contact your administrator to configure workspace access."
+    )
+    st.info(
+        "For security reasons, workspace access is restricted to configured directories. "
+        "This is expected behavior in a server deployment."
+    )
+    st.stop()
+
+root_strs = [str(p) for p in root_choices]
+selected_root = st.selectbox("Workspaces root directory", root_strs)
+base_dir = Path(selected_root)
+
+# Security check: ensure selected root is in the allowed list
+if not is_valid_workspace_path(base_dir, root_choices):
+    st.error("❌ Invalid workspace path selected. Access denied.")
+    st.stop()
 
 workspace_dirs = get_workspace_dirs(base_dir)
 
 if not workspace_dirs:
-    st.warning("No workspace directories found under the given root.")
-    st.info("Create a workspace first or check the root directory path.")
+    st.warning("No workspace directories found in the selected root.")
+    st.info("Please create a workspace or contact your administrator.")
     st.stop()
 
 workspace_choice = st.selectbox("Select workspace", [p.name for p in workspace_dirs])
 selected_workspace = next(
     (p for p in workspace_dirs if p.name == workspace_choice), workspace_dirs[0]
 )
+
+# Security check: ensure selected workspace is under the allowed root
+if not is_valid_workspace_path(selected_workspace, root_choices):
+    st.error("❌ Invalid workspace path. Access denied.")
+    st.stop()
 
 st.divider()
 
