@@ -1,6 +1,7 @@
 import streamlit as st
 from pathlib import Path
 from typing import List
+import os
 
 from src.common.common import page_setup
 
@@ -14,6 +15,52 @@ view file sizes, and download files.
 """
 )
 
+# Files and directories to exclude from workspace viewer (security/clutter)
+EXCLUDED_ITEMS = {
+    # Hidden files/dirs
+    ".git",
+    ".github",
+    ".vscode",
+    ".env",
+    ".env.local",
+    ".env.*.local",
+    # Python
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".pyc",
+    "*.egg-info",
+    "dist",
+    "build",
+    # System
+    ".DS_Store",
+    "Thumbs.db",
+    "node_modules",
+    # Secrets/sensitive
+    ".ssh",
+    ".gpg",
+    "secrets",
+    "credentials",
+    ".credentials",
+    # Cache
+    ".cache",
+    ".tmp",
+    "tmp",
+}
+
+
+def is_excluded(name: str) -> bool:
+    """Check if a file/directory should be excluded from the viewer"""
+    name_lower = name.lower()
+    for excluded in EXCLUDED_ITEMS:
+        if excluded.startswith("*."):
+            # Pattern match (e.g., *.egg-info)
+            if name_lower.endswith(excluded[1:]):
+                return True
+        elif name_lower == excluded or name_lower.startswith(excluded):
+            return True
+    return False
+
 
 def discover_roots() -> List[Path]:
     """Discover available workspace roots"""
@@ -21,40 +68,49 @@ def discover_roots() -> List[Path]:
     try:
         settings = st.session_state.settings
         location = st.session_state.get("location", "local")
-        if settings.get("workspaces_dir") and location == "local":
+        workspaces_dir = settings.get("workspaces_dir", "..")
+        repo_name = settings.get("repository-name", "")
+
+        # Try the configured workspaces directory
+        if workspaces_dir and location == "local":
             default_ws = Path(
-                settings["workspaces_dir"],
-                "workspaces-" + settings.get("repository-name", ""),
-            )
+                workspaces_dir,
+                "workspaces-" + repo_name if repo_name else "workspaces",
+            ).resolve()
         else:
-            default_ws = Path("..")
+            default_ws = Path("..").resolve()
     except Exception:
-        default_ws = Path("..")
+        default_ws = Path("..").resolve()
 
     candidates = [
         default_ws,
         default_ws / "default",
-        Path("example-data") / "workspaces",
+        Path("example-data").resolve() / "workspaces",
     ]
 
     for c in candidates:
-        if c.exists() and c.is_dir():
-            roots.append(c)
+        try:
+            c_resolved = c.resolve()
+            if c_resolved.exists() and c_resolved.is_dir():
+                roots.append(c_resolved)
+        except Exception:
+            pass
 
+    # Also check for workspace directories next to the configured path
     try:
         parent = default_ws.parent
         for p in parent.iterdir():
             if p.is_dir() and p.name.startswith("workspaces"):
-                roots.append(p)
+                roots.append(p.resolve())
     except Exception:
         pass
 
     seen = set()
     uniq: List[Path] = []
     for p in roots:
-        rp = p.resolve()
-        if str(rp) not in seen:
-            seen.add(str(rp))
+        rp = str(p)
+        if rp not in seen:
+            seen.add(rp)
             uniq.append(p)
     return uniq
 
@@ -83,7 +139,7 @@ def build_ascii_tree(
     max_depth: int = 10,
     current_depth: int = 0,
 ) -> str:
-    """Build ASCII tree structure like the 'tree' command"""
+    """Build ASCII tree structure like the 'tree' command, excluding sensitive files"""
     if current_depth > max_depth:
         return ""
 
@@ -91,7 +147,8 @@ def build_ascii_tree(
 
     try:
         items = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        items = [item for item in items if not item.name.startswith(".")]
+        # Filter out excluded items
+        items = [item for item in items if not is_excluded(item.name)]
 
         for i, item in enumerate(items):
             is_last_item = i == len(items) - 1
@@ -163,16 +220,22 @@ with tab2:
     # Collect all files with metadata
     all_files = []
     for item in selected_workspace.rglob("*"):
-        # Skip hidden files and files in hidden directories
-        if item.is_file() and not item.name.startswith(".") and "/.." not in str(item):
-            try:
-                rel_path = item.relative_to(selected_workspace)
-                # Check if any part of relative path starts with dot
-                if not any(part.startswith(".") for part in rel_path.parts):
+        # Skip excluded files and directories
+        if item.is_file():
+            # Check if any part of the path is excluded
+            is_file_excluded = False
+            for part in item.parts:
+                if is_excluded(part):
+                    is_file_excluded = True
+                    break
+
+            if not is_file_excluded:
+                try:
+                    rel_path = item.relative_to(selected_workspace)
                     size = item.stat().st_size
                     all_files.append((str(rel_path), size, item))
-            except (OSError, ValueError):
-                pass
+                except (OSError, ValueError):
+                    pass
 
     if not all_files:
         st.info("No files found in workspace")
@@ -229,7 +292,14 @@ with st.expander("Workspace Statistics"):
     dir_count = 0
 
     for item in selected_workspace.rglob("*"):
-        if not any(part.startswith(".") for part in item.parts):
+        # Skip excluded items
+        is_item_excluded = False
+        for part in item.parts:
+            if is_excluded(part):
+                is_item_excluded = True
+                break
+
+        if not is_item_excluded:
             if item.is_file():
                 file_count += 1
                 total_size += item.stat().st_size
