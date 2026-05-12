@@ -293,6 +293,11 @@ RUN mamba run -n streamlit-env python hooks/hook-analytics.py
 # Set Online Deployment
 RUN jq '.online_deployment = true' settings.json > tmp.json && mv tmp.json settings.json
 
+# Point the in-app mounted-drive browser at the conventional bind-mount path.
+# The browser only renders when this directory exists at runtime, i.e. when
+# the user starts the container with `-v /host/path:/mounted-data`.
+RUN jq '.local_data_dir = "/mounted-data"' settings.json > tmp.json && mv tmp.json settings.json
+
 # Download latest OpenMS App executable as a ZIP file.
 # ARG declared here (not at the top) — otherwise the per-run token busts the cache.
 ARG GITHUB_TOKEN

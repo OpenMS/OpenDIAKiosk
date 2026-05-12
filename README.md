@@ -126,6 +126,26 @@ This repository contains two Dockerfiles.
       docker run -p 8505:8501 openms_streamlit_template
       ```
 
+   ### Mount a local data directory
+
+   To make a directory of MS files on the host available to the running app
+   without uploading or copying them, bind-mount it into the container at
+   the path configured by `local_data_dir` in `settings.json` (the Docker
+   image defaults this to `/mounted-data`):
+
+   ```
+   docker run -p 8501:8501 \
+     -v /path/on/host:/mounted-data:ro \
+     openms_streamlit_template
+   ```
+
+   The upload widget auto-detects the mount: when the directory exists at
+   runtime it shows an in-app tree browser; selected files are referenced
+   in place via `external_files.txt` (no copy into the workspace volume),
+   so the mount can safely be read-only. Omitting `-v` hides the browser
+   and falls back to the standard upload UI. To use a different container
+   path, change `local_data_dir` in `settings.json` before building.
+
 ## Documentation
 
 Documentation for **users** and **developers** is included as pages in [this template app](https://abi-services.cs.uni-tuebingen.de/streamlit-template/), indicated by the 📖 icon.
