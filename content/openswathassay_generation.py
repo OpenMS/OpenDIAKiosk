@@ -92,7 +92,7 @@ input_file = st.file_uploader(
 )
 if input_file is not None:
     st.write(f"✅ Loaded: {input_file.name}")
-    st.caption("Uploaded library will be saved into `input-files/libraries` before the run starts.")
+    st.caption("Uploaded library will be saved into `openswath-workflow/input-files/libraries` before the run starts.")
 
 # --- Output File Configuration ---
 st.markdown("---")

@@ -26,6 +26,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from src.common.common import page_setup
+from src.common.workspace_files import (
+    workspace_fasta_dir,
+    workspace_library_dir,
+    workspace_mzml_dir,
+)
 from src.workflow.OpenSwathWorkflow import OpenSwathWorkflow
 
 # -----------------------------------------------------------------------------
@@ -60,7 +65,7 @@ osag_fasta = _ws_params.get("osag_fasta", "")
 
 # Workspace file lists (for display / pre-flight only — not re-deriving logic)
 def _mzml_files() -> list[str]:
-    mzml_dir = workspace_dir / "mzML-files"
+    mzml_dir = workspace_mzml_dir(workspace_dir)
     names: list[str] = []
     if mzml_dir.exists():
         names = [
@@ -77,12 +82,12 @@ def _mzml_files() -> list[str]:
 
 
 def _fasta_files() -> list[str]:
-    d = workspace_dir / "input-files" / "fasta"
+    d = workspace_fasta_dir(workspace_dir)
     return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
 
 
 def _lib_files() -> list[str]:
-    d = workspace_dir / "input-files" / "libraries"
+    d = workspace_library_dir(workspace_dir)
     return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
 
 

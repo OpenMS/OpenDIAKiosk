@@ -16,6 +16,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.common import page_setup
+from src.common.workspace_files import workspace_fasta_dir
 from src.workflow.UniProtFastaManager import (
     AppendResult,
     COMMON_SPECIES,
@@ -89,8 +90,7 @@ def _append_builtin_fasta_to_download(
     )
 
     if save_to_workspace:
-        fasta_workspace = workspace_dir / "input-files" / "fasta"
-        fasta_workspace.mkdir(parents=True, exist_ok=True)
+        fasta_workspace = workspace_fasta_dir(workspace_dir)
         out_path = fasta_workspace / st.session_state.dl_filename
         out_path.write_text(st.session_state.dl_result_text, encoding="utf-8")
         st.success(f"Updated workspace FASTA: `{out_path}`")
@@ -198,11 +198,11 @@ with tab_download:
 
     # -- Workspace save --------------------------------------------------------
     workspace_dir = Path(st.session_state.get("workspace", "."))
-    fasta_workspace = workspace_dir / "input-files" / "fasta"
+    fasta_workspace = workspace_fasta_dir(workspace_dir)
 
     with st.expander("💾 Workspace save options", expanded=False):
         save_to_ws = st.checkbox(
-            "Also save to workspace (input-files/fasta/)",
+            "Also save to workspace (openswath-workflow/input-files/fasta/)",
             value=True,
             key="dl_save_ws",
         )
@@ -357,7 +357,7 @@ with tab_filter:
 
     # Check workspace for FASTA files
     fasta_workspace_files: list[str] = []
-    _fasta_dir = Path(st.session_state.get("workspace", ".")) / "input-files" / "fasta"
+    _fasta_dir = workspace_fasta_dir(Path(st.session_state.get("workspace", ".")))
     if _fasta_dir.exists():
         fasta_workspace_files = [p.name for p in _fasta_dir.iterdir() if p.is_file()]
     if fasta_workspace_files:
