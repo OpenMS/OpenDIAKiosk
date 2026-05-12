@@ -29,6 +29,8 @@ from src.common.workspace_files import (
     archive_needs_refresh,
     build_zip_archive,
     list_workspace_files,
+    resolve_input_dir_paths,
+    resolve_input_file,
     save_uploaded_file,
     total_size_label,
     workspace_fasta_dir,
@@ -619,20 +621,19 @@ class OpenSwathWorkflow(WorkflowManager):
         super().show_execution_section()
 
     def _mzml_paths(self) -> list[str]:
-        """Resolve full paths for all mzML files in the OpenSwath input dir."""
+        """Resolve full paths for all mzML files in the OpenSwath input dir.
+
+        Includes both files copied into the dir and entries listed in
+        ``external_files.txt`` (written by upload_widget when the user
+        picks files without making a copy).
+        """
         self._ensure_workspace_context()
-        mzml_dir = workspace_mzml_dir(self._workspace_dir)
-        paths: list[str] = []
-        if mzml_dir.exists():
-            for p in mzml_dir.iterdir():
-                if p.is_file() and "external_files.txt" not in p.name:
-                    paths.append(str(p))
-            ext_file = mzml_dir / "external_files.txt"
-            if ext_file.exists():
-                paths += [
-                    l.strip() for l in ext_file.read_text().splitlines() if l.strip()
-                ]
-        return paths
+        return [
+            str(p)
+            for p in resolve_input_dir_paths(
+                workspace_mzml_dir(self._workspace_dir)
+            )
+        ]
 
     # ------------------------------------------------------------------
     # Step implementations
@@ -655,9 +656,11 @@ class OpenSwathWorkflow(WorkflowManager):
             self.logger.log("❌ No FASTA file configured for EasyPQP.")
             return False
 
-        fasta_path = workspace_fasta_dir(self._workspace_dir) / fasta_name
-        if not fasta_path.exists():
-            self.logger.log(f"❌ FASTA file not found: {fasta_path}")
+        fasta_path = resolve_input_file(
+            workspace_fasta_dir(self._workspace_dir), fasta_name
+        )
+        if fasta_path is None:
+            self.logger.log(f"❌ FASTA file not found: {fasta_name}")
             return False
 
         out_dir = results_dir / "insilico"
@@ -1050,9 +1053,15 @@ class OpenSwathWorkflow(WorkflowManager):
             lib_dir = workspace_library_dir(self._workspace_dir)
             lib_file = cfg.get("osag_library_input", "")
             if lib_file:
-                osag_in = str(lib_dir / lib_file)
+                resolved_lib = resolve_input_file(lib_dir, lib_file)
+                if resolved_lib is None:
+                    self.logger.log(
+                        f"❌ Transition library not found in workspace: {lib_file}"
+                    )
+                    return False
+                osag_in = str(resolved_lib)
             else:
-                libs = sorted(lib_dir.iterdir()) if lib_dir.exists() else []
+                libs = sorted(resolve_input_dir_paths(lib_dir), key=lambda p: p.name)
                 if not libs:
                     self.logger.log(
                         "❌ No transition library found and EasyPQP is disabled."
