@@ -33,60 +33,19 @@ def _openswath_input_dir(workspace_dir: Path, key: str) -> Path:
 
 
 def workspace_fasta_dir(workspace_dir: Path) -> Path:
-    migrate_legacy_openswath_inputs(workspace_dir)
     return _openswath_input_dir(workspace_dir, "fasta")
 
 
 def workspace_library_dir(workspace_dir: Path) -> Path:
-    migrate_legacy_openswath_inputs(workspace_dir)
     return _openswath_input_dir(workspace_dir, "libraries")
 
 
 def workspace_mzml_dir(workspace_dir: Path) -> Path:
-    migrate_legacy_openswath_inputs(workspace_dir)
     return _openswath_input_dir(workspace_dir, "mzML-files")
 
 
 def workspace_xic_dir(workspace_dir: Path) -> Path:
-    migrate_legacy_openswath_inputs(workspace_dir)
     return _openswath_input_dir(workspace_dir, "xic-files")
-
-
-def migrate_legacy_openswath_inputs(workspace_dir: Path) -> None:
-    """Copy any files at the legacy workspace-level paths into the
-    OpenSwath workflow-scoped layout. Idempotent — only copies files
-    that are not already present (or are older) at the destination.
-
-    Legacy → new mapping:
-      workspace/mzML-files/             → workspace/openswath-workflow/input-files/mzML-files/
-      workspace/input-files/fasta/      → workspace/openswath-workflow/input-files/fasta/
-      workspace/input-files/libraries/  → workspace/openswath-workflow/input-files/libraries/
-      workspace/xic-files/              → workspace/openswath-workflow/input-files/xic-files/
-
-    Original files are NOT removed, so the legacy pyOpenMS-Workflow page
-    (`content/file_upload.py`) keeps working on `workspace/mzML-files/`.
-    """
-    workspace_root = Path(workspace_dir)
-    new_root = workspace_root / OPENSWATH_WORKFLOW_NAME / "input-files"
-
-    legacy_map: list[tuple[Path, Path]] = [
-        (workspace_root / "mzML-files", new_root / "mzML-files"),
-        (workspace_root / "input-files" / "fasta", new_root / "fasta"),
-        (workspace_root / "input-files" / "libraries", new_root / "libraries"),
-        (workspace_root / "xic-files", new_root / "xic-files"),
-    ]
-
-    for legacy_dir, new_dir in legacy_map:
-        if not legacy_dir.is_dir():
-            continue
-        try:
-            if legacy_dir.resolve() == new_dir.resolve():
-                continue
-        except OSError:
-            pass
-        for path in legacy_dir.iterdir():
-            if path.is_file():
-                sync_file_into_directory(path, new_dir)
 
 
 def list_workspace_files(
