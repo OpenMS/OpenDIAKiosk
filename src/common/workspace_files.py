@@ -48,6 +48,31 @@ def workspace_xic_dir(workspace_dir: Path) -> Path:
     return _openswath_input_dir(workspace_dir, "xic-files")
 
 
+def list_input_dir_files(directory: Path) -> list[str]:
+    """Names of files inside an upload_widget input dir.
+
+    Skips the ``external_files.txt`` manifest itself and resolves the
+    basenames of any paths it lists (the non-copy mode of upload_widget
+    writes absolute host paths there instead of copying the files).
+    """
+    names: list[str] = []
+    if not directory.exists():
+        return names
+    names = [
+        p.name
+        for p in directory.iterdir()
+        if p.is_file() and p.name != "external_files.txt"
+    ]
+    ext_file = directory / "external_files.txt"
+    if ext_file.exists():
+        names += [
+            Path(line.strip()).name
+            for line in ext_file.read_text().splitlines()
+            if line.strip()
+        ]
+    return names
+
+
 def list_workspace_files(
     directory: Path, valid_extensions: set[str] | None = None
 ) -> list[Path]:

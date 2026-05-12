@@ -27,6 +27,7 @@ import streamlit.components.v1 as components
 
 from src.common.common import page_setup
 from src.common.workspace_files import (
+    list_input_dir_files,
     workspace_fasta_dir,
     workspace_library_dir,
     workspace_mzml_dir,
@@ -65,30 +66,15 @@ osag_fasta = _ws_params.get("osag_fasta", "")
 
 # Workspace file lists (for display / pre-flight only — not re-deriving logic)
 def _mzml_files() -> list[str]:
-    mzml_dir = workspace_mzml_dir(workspace_dir)
-    names: list[str] = []
-    if mzml_dir.exists():
-        names = [
-            p.name
-            for p in mzml_dir.iterdir()
-            if p.is_file() and "external_files.txt" not in p.name
-        ]
-        ext = mzml_dir / "external_files.txt"
-        if ext.exists():
-            names += [
-                Path(l.strip()).name for l in ext.read_text().splitlines() if l.strip()
-            ]
-    return names
+    return list_input_dir_files(workspace_mzml_dir(workspace_dir))
 
 
 def _fasta_files() -> list[str]:
-    d = workspace_fasta_dir(workspace_dir)
-    return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
+    return list_input_dir_files(workspace_fasta_dir(workspace_dir))
 
 
 def _lib_files() -> list[str]:
-    d = workspace_library_dir(workspace_dir)
-    return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
+    return list_input_dir_files(workspace_library_dir(workspace_dir))
 
 
 mzml_list = _mzml_files()
