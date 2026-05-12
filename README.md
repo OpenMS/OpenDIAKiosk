@@ -28,6 +28,59 @@ This repository is based on the [streamlit-template](https://github.com/OpenMS/s
 
 Explore the hosted version here:  👉 [Live App](https://abi-services.cs.uni-tuebingen.de/streamlit-template/)
 
+## 🚀 Self-hosted deployment
+
+Run OpenDIAKiosk on your own server, VM, or workstation by pulling the prebuilt Docker image from GitHub Container Registry — no clone or build step required.
+
+> **Note:** This section covers single-host Docker deployments. For a real Kubernetes cluster (Traefik ingress, Redis-backed job queue, shared PVC), see [`docs/kubernetes-deployment.md`](docs/kubernetes-deployment.md).
+
+### 1. Pull the image
+
+```bash
+docker pull ghcr.io/openms/opendiakiosk:latest
+```
+
+### 2. Run the container
+
+```bash
+docker run -d \
+  --name opendiakiosk \
+  -p 8501:8501 \
+  -v /path/to/data:/mounted-data:ro \
+  -v /path/to/workspaces:/workspaces-streamlit-template \
+  ghcr.io/openms/opendiakiosk:latest
+```
+
+- **`-p 8501:8501`** — exposes the in-container Streamlit server (port 8501) on the host's port 8501. Change the left-hand number to bind to a different host port (e.g. `-p 9000:8501` to reach the UI at `http://host:9000`).
+
+- **`-v /path/to/data:/mounted-data:ro`** — *optional* bind-mount that makes a host directory of MS data files (mzML, raw, etc.) available inside the container at `/mounted-data`. When this directory exists at container start, the in-app upload page auto-detects it and shows an in-app tree browser; selected files are referenced in place (no copy into the workspace volume), so the mount can safely be read-only (`:ro`). Omit this flag entirely to fall back to the standard browser-upload UI.
+
+- **`-v /path/to/workspaces:/workspaces-streamlit-template`** — bind-mount on the host that persists every user workspace (parameters, uploaded inputs, workflow results) across container restarts and upgrades. Without it, all workspaces are lost as soon as the container is removed. Point the left-hand path at any directory on the host with enough free space for the expected workload.
+
+### 3. Access remotely via SSH tunnel
+
+If the host has no public IP — or port 8501 is firewalled (recommended) — forward the port over SSH from your laptop:
+
+```bash
+ssh -L 8501:localhost:8501 user@your-server
+```
+
+Then open <http://localhost:8501> in your local browser. Add `-N` to skip opening a shell when you only need the tunnel:
+
+```bash
+ssh -N -L 8501:localhost:8501 user@your-server
+```
+
+### 4. Update to a new version
+
+```bash
+docker pull ghcr.io/openms/opendiakiosk:latest
+docker stop opendiakiosk && docker rm opendiakiosk
+# then re-run the `docker run` command from step 2
+```
+
+The host directory bound to `/workspaces-streamlit-template` is untouched by `docker rm`, so all user workspaces are preserved across upgrades.
+
 ## 💻 Run Locally
 
 To run the app locally:
