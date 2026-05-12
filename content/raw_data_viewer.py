@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.common import page_setup
+from src.common.workspace_files import workspace_mzml_dir
 from src import view
 
 
@@ -13,7 +14,7 @@ st.title("View raw MS data")
 # File selection can not be in fragment since it influences the subsequent sections
 cols = st.columns(3)
 
-mzML_dir = Path(st.session_state.workspace, "mzML-files")
+mzML_dir = workspace_mzml_dir(Path(st.session_state.workspace))
 file_options = [f.name for f in mzML_dir.iterdir() if "external_files.txt" not in f.name]
 
 # Check if local files are available
@@ -30,7 +31,7 @@ selected_file = cols[0].selectbox(
     key="view_selected_file"
 )
 if selected_file:
-    view.get_df(Path(st.session_state.workspace, "mzML-files", selected_file))
+    view.get_df(mzML_dir / selected_file)
 
 
     tabs = st.tabs(
