@@ -48,6 +48,81 @@ def workspace_xic_dir(workspace_dir: Path) -> Path:
     return _openswath_input_dir(workspace_dir, "xic-files")
 
 
+def list_input_dir_files(directory: Path) -> list[str]:
+    """Names of files inside an upload_widget input dir.
+
+    Skips the ``external_files.txt`` manifest itself and resolves the
+    basenames of any paths it lists (the non-copy mode of upload_widget
+    writes absolute host paths there instead of copying the files).
+    """
+    names: list[str] = []
+    if not directory.exists():
+        return names
+    names = [
+        p.name
+        for p in directory.iterdir()
+        if p.is_file() and p.name != "external_files.txt"
+    ]
+    ext_file = directory / "external_files.txt"
+    if ext_file.exists():
+        names += [
+            Path(line.strip()).name
+            for line in ext_file.read_text().splitlines()
+            if line.strip()
+        ]
+    return names
+
+
+def resolve_input_dir_paths(directory: Path) -> list[Path]:
+    """Resolve every file in an upload_widget input dir to a full Path.
+
+    Returns the absolute paths of regular files in *directory* (skipping
+    ``external_files.txt``) followed by the entries listed in that
+    manifest whose paths still exist on disk. Dead manifest entries are
+    silently dropped.
+    """
+    paths: list[Path] = []
+    if not directory.exists():
+        return paths
+    for p in directory.iterdir():
+        if p.is_file() and p.name != "external_files.txt":
+            paths.append(p)
+    ext_file = directory / "external_files.txt"
+    if ext_file.exists():
+        for line in ext_file.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            ext_path = Path(stripped)
+            if ext_path.exists():
+                paths.append(ext_path)
+    return paths
+
+
+def resolve_input_file(directory: Path, name: str) -> Path | None:
+    """Resolve a basename to a full path inside an upload_widget input dir.
+
+    Checks the directory first; if no direct match, falls back to
+    ``external_files.txt`` entries with a matching basename. Returns
+    ``None`` if nothing matches.
+    """
+    if not name or not directory.exists():
+        return None
+    direct = directory / name
+    if direct.is_file() and direct.name != "external_files.txt":
+        return direct
+    ext_file = directory / "external_files.txt"
+    if ext_file.exists():
+        for line in ext_file.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            ext_path = Path(stripped)
+            if ext_path.name == name and ext_path.exists():
+                return ext_path
+    return None
+
+
 def list_workspace_files(
     directory: Path, valid_extensions: set[str] | None = None
 ) -> list[Path]:
