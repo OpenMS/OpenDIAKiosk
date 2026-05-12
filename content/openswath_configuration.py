@@ -24,6 +24,11 @@ import pyopenms as poms
 import streamlit as st
 
 from src.common.common import page_setup, save_params
+from src.common.workspace_files import (
+    workspace_fasta_dir,
+    workspace_library_dir,
+    workspace_mzml_dir,
+)
 from src.workflow.ParameterManager import ParameterManager
 from src.workflow.StreamlitUI import StreamlitUI
 from src.workflow.PyProphet import PyProphetCLI
@@ -572,7 +577,7 @@ def _collect_pyprophet_command_payload(
 
 
 def _mzml_files() -> list[str]:
-    mzml_dir = workspace_dir / "mzML-files"
+    mzml_dir = workspace_mzml_dir(workspace_dir)
     names: list[str] = []
     if mzml_dir.exists():
         names = [
@@ -591,12 +596,12 @@ def _mzml_files() -> list[str]:
 
 
 def _fasta_files() -> list[str]:
-    d = workspace_dir / "input-files" / "fasta"
+    d = workspace_fasta_dir(workspace_dir)
     return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
 
 
 def _lib_files() -> list[str]:
-    d = workspace_dir / "input-files" / "libraries"
+    d = workspace_library_dir(workspace_dir)
     return [p.name for p in d.iterdir() if p.is_file()] if d.exists() else []
 
 

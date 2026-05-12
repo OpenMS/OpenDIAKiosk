@@ -68,7 +68,7 @@ with col1:
             "Select an existing FASTA from the workspace" if value == "" else value
         ),
         help=(
-            "Files are read from `input-files/fasta`. Uploading a new FASTA below "
+            "Files are read from `openswath-workflow/input-files/fasta`. Uploading a new FASTA below "
             "will save it there for reuse across the app."
         ),
     )
@@ -919,7 +919,7 @@ if easypqp_workspace.exists() and results_dir.exists():
         if synced_library_files:
             synced_names = ", ".join(f"`{path.name}`" for path in synced_library_files)
             st.caption(
-                "Workspace library pool updated in `input-files/libraries`: "
+                "Workspace library pool updated in `openswath-workflow/input-files/libraries`: "
                 f"{synced_names}"
             )
 

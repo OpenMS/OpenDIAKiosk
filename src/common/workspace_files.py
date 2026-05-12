@@ -9,18 +9,43 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 FASTA_EXTENSIONS = {".fasta", ".fa", ".faa", ".fna"}
 LIBRARY_EXTENSIONS = {".traml", ".tsv", ".mrm", ".pqp", ".oswpq"}
+MZML_EXTENSIONS = {".mzml"}
+XIC_EXTENSIONS = {".xic", ".parquet"}
+
+OPENSWATH_WORKFLOW_NAME = "openswath-workflow"
+
+
+def openswath_workflow_dir(workspace_dir: Path) -> Path:
+    """Return the OpenSwath workflow_dir for *workspace_dir*.
+
+    Matches the convention `WorkflowManager.__init__` uses for an
+    `OpenSwathWorkflow` instance (`workspace_dir / "openswath-workflow"`).
+    """
+    path = Path(workspace_dir, OPENSWATH_WORKFLOW_NAME)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _openswath_input_dir(workspace_dir: Path, key: str) -> Path:
+    path = openswath_workflow_dir(workspace_dir) / "input-files" / key
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def workspace_fasta_dir(workspace_dir: Path) -> Path:
-    path = Path(workspace_dir, "input-files", "fasta")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _openswath_input_dir(workspace_dir, "fasta")
 
 
 def workspace_library_dir(workspace_dir: Path) -> Path:
-    path = Path(workspace_dir, "input-files", "libraries")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _openswath_input_dir(workspace_dir, "libraries")
+
+
+def workspace_mzml_dir(workspace_dir: Path) -> Path:
+    return _openswath_input_dir(workspace_dir, "mzML-files")
+
+
+def workspace_xic_dir(workspace_dir: Path) -> Path:
+    return _openswath_input_dir(workspace_dir, "xic-files")
 
 
 def list_workspace_files(
