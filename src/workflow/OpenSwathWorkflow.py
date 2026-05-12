@@ -25,9 +25,16 @@ from pathlib import Path
 import streamlit as st
 
 from src.common.workspace_files import (
+    LIBRARY_EXTENSIONS,
     archive_needs_refresh,
     build_zip_archive,
+    list_workspace_files,
+    save_uploaded_file,
     total_size_label,
+    workspace_fasta_dir,
+    workspace_library_dir,
+    workspace_mzml_dir,
+    workspace_xic_dir,
 )
 from .ParameterManager import ParameterManager
 from .WorkflowManager import WorkflowManager
@@ -95,6 +102,181 @@ class OpenSwathWorkflow(WorkflowManager):
             self._workspace_dir, workflow_name=self.name
         )
         self.executor.parameter_manager = self._workspace_parameter_manager
+
+    # ------------------------------------------------------------------
+    # File upload section
+
+    def upload(self) -> None:
+        """File-upload UI for the OpenSwath workflow.
+
+        Uses the streamlit-template ``upload_widget`` for the four primary
+        input categories (mzML, FASTA, library, XIC).  Pre-existing
+        OpenSwath results are handled by a separate hand-rolled section
+        because they target files under ``results/`` rather than
+        ``input-files/``.
+        """
+        tabs = st.tabs(
+            ["MS data", "FASTA", "Library", "XIC", "Imported results"]
+        )
+        with tabs[0]:
+            self.ui.upload_widget(
+                key="mzML-files",
+                name="MS data",
+                file_types=["mzML", "mzML.gz"],
+            )
+        with tabs[1]:
+            fasta_fallback = [
+                str(p) for p in Path("example-data", "fasta").glob("*human*")
+            ]
+            self.ui.upload_widget(
+                key="fasta",
+                name="FASTA",
+                file_types=["fasta", "fa", "faa"],
+                fallback=fasta_fallback or None,
+            )
+        with tabs[2]:
+            self.ui.upload_widget(
+                key="libraries",
+                name="Spectral library / transition list",
+                file_types=["tsv", "traML", "pqp"],
+            )
+        with tabs[3]:
+            self.ui.upload_widget(
+                key="xic-files",
+                name="XIC files",
+                file_types=["xic", "parquet"],
+            )
+        with tabs[4]:
+            self._render_imported_results_upload()
+
+    def _render_imported_results_upload(self) -> None:
+        """Hand-rolled uploads for pre-existing OpenSwath results.
+
+        These land under ``workflow_dir/results/...`` so the results
+        viewer (which rglobs the workspace) can pick them up.
+        """
+        st.caption(
+            "Upload result files from a previous OpenSwath run so the Results "
+            "Viewer, XIC Viewer, and Results Comparison pages can use them "
+            "without rerunning the pipeline."
+        )
+
+        results_root = self.workflow_dir / "results"
+        imported_root = results_root / "imported"
+
+        per_dir_uploaders = [
+            (
+                "Existing OpenSwath OSW result",
+                imported_root / "osw",
+                ["osw", "sqlite", "db"],
+                "imported_osw_upload",
+            ),
+            (
+                "Long-format results TSV",
+                imported_root / "tsv" / "long",
+                ["tsv"],
+                "imported_long_tsv_upload",
+            ),
+            (
+                "Precursor matrix TSV",
+                imported_root / "tsv" / "precursor",
+                ["tsv"],
+                "imported_precursor_matrix_upload",
+            ),
+            (
+                "Peptide matrix TSV",
+                imported_root / "tsv" / "peptide",
+                ["tsv"],
+                "imported_peptide_matrix_upload",
+            ),
+            (
+                "Protein matrix TSV",
+                imported_root / "tsv" / "protein",
+                ["tsv"],
+                "imported_protein_matrix_upload",
+            ),
+        ]
+
+        for label, target_dir, file_types, form_key in per_dir_uploaders:
+            self._render_imported_uploader(label, target_dir, file_types, form_key)
+
+        st.markdown("---")
+        st.markdown("##### Pre-generated transition lists")
+        st.caption(
+            "Drop in the exact outputs of OpenSwathAssayGenerator / "
+            "OpenSwathDecoyGenerator from a previous run to skip those "
+            "pipeline steps."
+        )
+        self._render_imported_fixed_path_uploader(
+            label="OpenSwathAssayGenerator output",
+            target_path=results_root / "osag" / _OSAG_OUT,
+            file_types=["tsv"],
+            form_key="imported_osag_output_upload",
+        )
+        self._render_imported_fixed_path_uploader(
+            label="OpenSwathDecoyGenerator output",
+            target_path=results_root / "osdg" / _OSDG_OUT,
+            file_types=["pqp"],
+            form_key="imported_osdg_output_upload",
+        )
+
+    def _render_imported_uploader(
+        self,
+        label: str,
+        target_dir: Path,
+        file_types: list[str],
+        form_key: str,
+    ) -> None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        with st.form(form_key, clear_on_submit=True):
+            st.markdown(f"**{label}**")
+            uploaded = st.file_uploader(
+                label,
+                type=file_types,
+                accept_multiple_files=False,
+                label_visibility="collapsed",
+                key=f"{form_key}_file",
+            )
+            submitted = st.form_submit_button(f"Save {label}", type="primary")
+            if submitted:
+                if uploaded is None:
+                    st.warning("Select a file first.")
+                else:
+                    saved = save_uploaded_file(uploaded, target_dir)
+                    st.success(f"Saved to `{saved}`")
+
+        existing = sorted(p.name for p in target_dir.iterdir() if p.is_file())
+        if existing:
+            st.caption(f"Currently in `{target_dir.name}/`: " + ", ".join(existing))
+
+    def _render_imported_fixed_path_uploader(
+        self,
+        label: str,
+        target_path: Path,
+        file_types: list[str],
+        form_key: str,
+    ) -> None:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with st.form(form_key, clear_on_submit=True):
+            st.markdown(f"**{label}** → `{target_path.name}`")
+            uploaded = st.file_uploader(
+                label,
+                type=file_types,
+                accept_multiple_files=False,
+                label_visibility="collapsed",
+                key=f"{form_key}_file",
+            )
+            submitted = st.form_submit_button(f"Save as {target_path.name}", type="primary")
+            if submitted:
+                if uploaded is None:
+                    st.warning("Select a file first.")
+                else:
+                    with open(target_path, "wb") as fh:
+                        fh.write(uploaded.getbuffer())
+                    st.success(f"Saved to `{target_path}`")
+
+        if target_path.exists():
+            st.caption(f"Currently saved: `{target_path}`")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -437,9 +619,9 @@ class OpenSwathWorkflow(WorkflowManager):
         super().show_execution_section()
 
     def _mzml_paths(self) -> list[str]:
-        """Resolve full paths for all mzML files in the workspace."""
+        """Resolve full paths for all mzML files in the OpenSwath input dir."""
         self._ensure_workspace_context()
-        mzml_dir = self._workspace_dir / "mzML-files"
+        mzml_dir = workspace_mzml_dir(self._workspace_dir)
         paths: list[str] = []
         if mzml_dir.exists():
             for p in mzml_dir.iterdir():
@@ -473,7 +655,7 @@ class OpenSwathWorkflow(WorkflowManager):
             self.logger.log("❌ No FASTA file configured for EasyPQP.")
             return False
 
-        fasta_path = self._workspace_file("input-files", "fasta", fasta_name)
+        fasta_path = workspace_fasta_dir(self._workspace_dir) / fasta_name
         if not fasta_path.exists():
             self.logger.log(f"❌ FASTA file not found: {fasta_path}")
             return False
@@ -865,7 +1047,7 @@ class OpenSwathWorkflow(WorkflowManager):
                 self.logger.log(f"Reusing EasyPQP output: {osag_in}")
         else:
             # Use existing library from workspace
-            lib_dir = self._workspace_file("input-files", "libraries")
+            lib_dir = workspace_library_dir(self._workspace_dir)
             lib_file = cfg.get("osag_library_input", "")
             if lib_file:
                 osag_in = str(lib_dir / lib_file)
