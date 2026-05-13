@@ -125,9 +125,11 @@ apptainer run --writable-tmpfs \
 
 Notes:
 
-- **The `:target` is required.** `--bind /host/path` (no colon) mounts
-  the directory at the same path inside the container, which is *not*
-  what the app expects. Always write `:--bind src:/workspaces-streamlit-template`.
+- **Always specify the `:target` in each `--bind`.** Writing
+  `--bind /host/path` (no colon) mounts the directory at the same path
+  inside the container, which is *not* where the app looks for it. Use
+  `--bind /host/workspaces:/workspaces-streamlit-template` so the app
+  finds the workspace volume at the expected location.
 - The Redis queue and nginx state are ephemeral by design — losing them
   on container restart is fine. Override `RUNTIME_DIR` if you want to
   persist Redis dumps (`--env RUNTIME_DIR=/path/to/persistent`).
