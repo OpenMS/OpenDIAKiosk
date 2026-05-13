@@ -81,6 +81,51 @@ docker stop opendiakiosk && docker rm opendiakiosk
 
 The host directory bound to `/workspaces-streamlit-template` is untouched by `docker rm`, so all user workspaces are preserved across upgrades.
 
+## 🛰️ Run with Apptainer / Singularity (HPC clusters)
+
+On HPC clusters where Docker isn't available, run the same OCI image under
+[Apptainer](https://apptainer.org/) (formerly Singularity) — typically the
+default container runtime there. Apptainer runs containers with a **read-only
+root filesystem** by default and maps your host UID into the container; the
+OpenDIAKiosk entrypoint detects both conditions and falls back to writable
+paths under `/tmp` for Redis state and PID files, so no `--writable-tmpfs`
+flag is required.
+
+### 1. Pull and convert the image to SIF
+
+```bash
+apptainer pull docker://ghcr.io/openms/opendiakiosk:latest
+# produces opendiakiosk_latest.sif in the current directory
+```
+
+### 2. Run the container
+
+```bash
+apptainer run \
+  --bind /path/to/data:/mounted-data:ro \
+  --bind /path/to/workspaces:/workspaces-streamlit-template \
+  opendiakiosk_latest.sif
+```
+
+The bind semantics match the Docker `-v` flags above:
+
+- `--bind /path/to/data:/mounted-data:ro` — *optional* read-only mount of the
+  MS data directory the in-app file browser will list.
+- `--bind /path/to/workspaces:/workspaces-streamlit-template` — persistent
+  workspace storage, equivalent to the Docker `-v` for the same target path.
+
+### 3. Notes on apptainer-mode behavior
+
+- The entrypoint logs `Detected read-only root filesystem
+  (apptainer/singularity mode)` and routes Redis state to
+  `/tmp/openms-runtime-$$` (always writable in apptainer's default tmpfs).
+- The workspace-cleanup cron job is **skipped** under apptainer (cron cannot
+  write its PID file on a read-only root). If you need periodic cleanup, run
+  `clean-up-workspaces.py` from a host-side scheduler instead.
+- Network namespaces are shared with the host by default, so port `8501`
+  inside the container is reachable on the host immediately — no
+  port-mapping flag is required.
+
 ## 💻 Run Locally
 
 To run the app locally:
