@@ -66,6 +66,13 @@ RUN wget -q \
     && rm -f Miniforge3-Linux-x86_64.sh
 RUN mamba --version
 
+# Make /root traversable so the entrypoint can `source
+# /root/miniforge3/bin/activate ...` when the container runs as a non-root
+# user (apptainer/singularity maps the host UID into the container; the
+# default ubuntu /root is 0700 which would block path traversal). +x only,
+# not +r, so the directory listing remains private.
+RUN chmod o+x /root
+
 # Setup mamba environment.
 RUN mamba create -n streamlit-env python=3.11
 RUN echo "mamba activate streamlit-env" >> ~/.bashrc
@@ -185,12 +192,11 @@ FROM compile-openms AS run-app
 RUN apt-get update && apt-get install -y --no-install-recommends redis-server nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# Create Redis data directory. We do NOT chown to redis:redis here: under
-# apptainer/singularity the container runs as the host user's UID (not root,
-# not the in-image redis user), so a redis-owned dir is inaccessible. The
-# entrypoint switches to /tmp/openms-runtime-* when the root FS is read-only;
-# in docker mode the dir just needs to exist and be writable by root.
-RUN mkdir -p /var/lib/redis && chmod 0777 /var/lib/redis
+# Create Redis data directory. Default 0755 root-owned is enough: the docker
+# entrypoint runs as root (can write regardless of mode), and the apptainer
+# entrypoint relocates Redis state to /tmp/openms-runtime-* so this dir is
+# never written under apptainer.
+RUN mkdir -p /var/lib/redis
 
 # Create workdir and copy over all streamlit related files/folders.
 

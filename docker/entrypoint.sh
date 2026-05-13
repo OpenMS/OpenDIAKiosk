@@ -69,11 +69,22 @@ if command -v redis-server >/dev/null 2>&1; then
         --pidfile "$REDIS_PID_FILE" \
         --appendonly no
 
-    until redis-cli ping >/dev/null 2>&1; do
-        echo "Waiting for Redis..."
+    # Bounded wait so a broken redis-server (e.g. port already bound by the
+    # host under apptainer's shared net namespace) fails the container fast
+    # instead of hanging forever and never serving /_stcore/health.
+    REDIS_STARTUP_RETRIES="${REDIS_STARTUP_RETRIES:-30}"
+    for i in $(seq 1 "$REDIS_STARTUP_RETRIES"); do
+        if redis-cli ping >/dev/null 2>&1; then
+            echo "Redis is ready"
+            break
+        fi
+        echo "Waiting for Redis... attempt $i/$REDIS_STARTUP_RETRIES"
         sleep 1
     done
-    echo "Redis is ready"
+    if ! redis-cli ping >/dev/null 2>&1; then
+        echo "ERROR: Redis failed to become ready within ${REDIS_STARTUP_RETRIES}s" >&2
+        exit 1
+    fi
 
     WORKER_COUNT="${RQ_WORKER_COUNT:-1}"
     echo "Starting $WORKER_COUNT RQ worker(s)..."
