@@ -12,7 +12,13 @@ set -e
 # `streamlit run app.py` would otherwise resolve against the host's CWD.
 cd /app
 
+# Breadcrumbs — surfaced via apptainer instance .out/.err on failure, harmless
+# in docker mode. Cheap to keep around for ongoing apptainer support.
+echo "entrypoint: uid=$(id -u) gid=$(id -g) cwd=$(pwd) host=$(hostname) tty=$(tty 2>/dev/null || echo none)"
+echo "entrypoint: APPTAINER_NAME=${APPTAINER_NAME:-unset} SINGULARITY_NAME=${SINGULARITY_NAME:-unset} APPTAINER_CONTAINER=${APPTAINER_CONTAINER:-unset}"
+
 source /root/miniforge3/bin/activate streamlit-env
+echo "entrypoint: conda env activated, streamlit=$(command -v streamlit || echo NOT_FOUND)"
 
 # -----------------------------------------------------------------------------
 # Apptainer / read-only root filesystem detection
