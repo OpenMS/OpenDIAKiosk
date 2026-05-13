@@ -103,6 +103,13 @@ fi
 # -----------------------------------------------------------------------------
 SERVER_COUNT="${STREAMLIT_SERVER_COUNT:-1}"
 
+# Surface a misconfigured opt-in to load balancing — silently downgrading to a
+# single instance has bitten users on the simple image variant where nginx
+# isn't installed.
+if [ "$SERVER_COUNT" -gt 1 ] && ! command -v nginx >/dev/null 2>&1; then
+    echo "WARN: STREAMLIT_SERVER_COUNT=$SERVER_COUNT requested but nginx is not installed (simple image?); falling back to a single instance" >&2
+fi
+
 if [ "$SERVER_COUNT" -gt 1 ] && command -v nginx >/dev/null 2>&1; then
     echo "Starting $SERVER_COUNT Streamlit instances with nginx load balancer..."
 
