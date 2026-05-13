@@ -81,6 +81,61 @@ docker stop opendiakiosk && docker rm opendiakiosk
 
 The host directory bound to `/workspaces-streamlit-template` is untouched by `docker rm`, so all user workspaces are preserved across upgrades.
 
+## 🧪 Run with Apptainer / Singularity (HPC clusters)
+
+Most HPC sites (Puhti, LUMI, JUWELS, …) don't allow Docker but ship
+[Apptainer](https://apptainer.org/) (the successor to Singularity). You
+can pull the Docker image directly into a `.sif`:
+
+```bash
+apptainer pull docker://ghcr.io/openms/opendiakiosk:latest
+```
+
+Apptainer mounts the container filesystem **read-only** by default, which
+breaks the in-container `cron` (`/var/run/crond.pid`) and `redis-server`
+(`/var/lib/redis`). Use one of the two recipes below depending on the
+image you pulled.
+
+### Recipe A — image built from `main` after the Apptainer fix
+
+The entrypoint stores all writable state under `/tmp/opendiakiosk` (a
+tmpfs that Apptainer provides automatically), so a plain `apptainer run`
+with your bind-mounts works:
+
+```bash
+apptainer run \
+  --bind /path/on/host/data:/mounted-data:ro \
+  --bind /path/on/host/workspaces:/workspaces-streamlit-template \
+  opendiakiosk_latest.sif
+```
+
+### Recipe B — older image without the fix (use `--writable-tmpfs`)
+
+For the currently-published `:latest` (built before the Apptainer fix
+landed), wrap the run with `--writable-tmpfs` so Apptainer overlays an
+in-memory writable layer that lets `cron` and Redis use their original
+paths:
+
+```bash
+apptainer run --writable-tmpfs \
+  --bind /path/on/host/data:/mounted-data:ro \
+  --bind /path/on/host/workspaces:/workspaces-streamlit-template \
+  opendiakiosk_latest.sif
+```
+
+Notes:
+
+- **The `:target` is required.** `--bind /host/path` (no colon) mounts
+  the directory at the same path inside the container, which is *not*
+  what the app expects. Always write `:--bind src:/workspaces-streamlit-template`.
+- The Redis queue and nginx state are ephemeral by design — losing them
+  on container restart is fine. Override `RUNTIME_DIR` if you want to
+  persist Redis dumps (`--env RUNTIME_DIR=/path/to/persistent`).
+- Scheduled workspace cleanup (`clean-up-workspaces.py`) is skipped
+  under Apptainer because cron can't write its pidfile. Run it from a
+  host cron if you care about pruning idle workspaces.
+- Forward the port to your laptop with `ssh -L 8501:localhost:8501 user@hpc`.
+
 ## 💻 Run Locally
 
 To run the app locally:
@@ -213,5 +268,4 @@ Müller, T. D., Siraj, A., et al. OpenMS WebApps: Building User-Friendly Solutio
 - Pfeuffer, J., Bielow, C., Wein, S. et al. OpenMS 3 enables reproducible analysis of large-scale mass spectrometry data. Nat Methods 21, 365–367 (2024). [https://doi.org/10.1038/s41592-024-02197-7](https://doi.org/10.1038/s41592-024-02197-7)
 
 - Röst HL, Schmitt U, Aebersold R, Malmström L. pyOpenMS: a Python-based interface to the OpenMS mass-spectrometry algorithm library. Proteomics. 2014 Jan;14(1):74-7. [https://doi.org/10.1002/pmic.201300246](https://doi.org/10.1002/pmic.201300246). PMID: [24420968](https://pubmed.ncbi.nlm.nih.gov/24420968/).
-
 
