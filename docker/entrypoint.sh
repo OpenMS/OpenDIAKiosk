@@ -7,6 +7,11 @@
 # image usable there without --writable-tmpfs.
 set -e
 
+# Force the app directory regardless of how the container was invoked.
+# `apptainer instance start` does not always honor the Docker WORKDIR, so
+# `streamlit run app.py` would otherwise resolve against the host's CWD.
+cd /app
+
 source /root/miniforge3/bin/activate streamlit-env
 
 # -----------------------------------------------------------------------------
@@ -166,6 +171,6 @@ NGINX_EOF
     echo "Starting nginx load balancer on port 8501..."
     exec /usr/sbin/nginx -c "$NGINX_CONF_FILE" -g "daemon off;"
 else
-    echo "Starting Streamlit app..."
+    echo "Starting Streamlit app (cwd=$(pwd), uid=$(id -u))..."
     exec streamlit run app.py --server.address 0.0.0.0
 fi
