@@ -257,6 +257,81 @@ jobs:
         if: always()
         run: apptainer instance stop openms-test || true
 
+      - name: Upload validated SIF artifact (push events only)
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openms-streamlit-${{ matrix.variant }}-sif
+          path: /tmp/openms.sif
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-apptainer:
+    # Publish the validated SIF (already health-checked above) to GHCR as an
+    # OCI artifact via ORAS, in a sibling package: ghcr.io/<owner>/<repo>/sif.
+    # Keeping it separate from the docker image package keeps tag lists clean
+    # and lets HPC users `apptainer pull oras://...` without the 5-15 min
+    # on-the-fly OCI->SIF conversion the docker:// path requires.
+    needs: test-apptainer
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [full, simple]
+    steps:
+      - name: Download validated SIF artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: openms-streamlit-${{ matrix.variant }}-sif
+          path: /tmp
+
+      - name: Install apptainer
+        uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: 1.3.4
+
+      - name: Compute SIF tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sif
+          tags: |
+            type=ref,event=branch,suffix=-${{ matrix.variant }}
+            type=ref,event=tag,suffix=-${{ matrix.variant }}
+            type=sha,prefix=,suffix=-${{ matrix.variant }}
+            type=raw,value=latest,enable=${{ matrix.variant == 'full' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Log in to GHCR for ORAS push
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # apptainer reads its auth from ~/.apptainer/remote.yaml, NOT from
+          # ~/.docker/config.json — so docker/login-action won't work here.
+          # Login and push must both run as the runner user (no sudo) so they
+          # share the same $HOME and therefore the same auth file.
+          echo "$GHCR_TOKEN" | apptainer registry login \
+            --username "${{ github.actor }}" \
+            --password-stdin \
+            oras://ghcr.io
+
+      - name: Push SIF to each computed tag
+        run: |
+          # `apptainer push` accepts ONE destination per invocation; iterate
+          # over the newline-separated tag list from docker/metadata-action.
+          # tr lowercase is belt-and-braces — metadata-action already
+          # lowercases, but GHCR is strict about case in OCI refs.
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            tag_lc="$(echo "$tag" | tr '[:upper:]' '[:lower:]')"
+            echo "Pushing SIF to oras://${tag_lc}"
+            apptainer push /tmp/openms.sif "oras://${tag_lc}"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
   test-nginx:
     needs: build
     runs-on: ubuntu-latest

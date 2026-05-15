@@ -202,16 +202,24 @@ This repository contains two Dockerfiles.
 ## 🛰️ Run with Apptainer / Singularity (HPC)
 
 Apptainer (formerly Singularity) is the dominant container runtime on HPC
-clusters. Pull the OCI image from GHCR, convert it to a SIF, and run it as
-your user — no root, no `--writable-tmpfs` required:
+clusters. CI publishes prebuilt SIFs to GHCR via ORAS, so you can pull a
+ready-to-run image with no on-the-fly OCI→SIF conversion and run it as your
+user — no root, no `--writable-tmpfs` required:
 
 ```bash
-apptainer pull docker://ghcr.io/openms/streamlit-template:latest
+apptainer pull --name openms-streamlit-template.sif \
+  oras://ghcr.io/openms/streamlit-template/sif:latest
 apptainer run \
   --bind /path/to/data:/mounted-data:ro \
   --bind /path/to/workspaces:/workspaces-streamlit-template \
-  streamlit-template_latest.sif
+  openms-streamlit-template.sif
 ```
+
+Available tags follow the same scheme as the Docker images: `latest`,
+`main-full`, `main-simple`, `v*-full`, `v*-simple`, and per-commit SHAs.
+If a tag hasn't been prebuilt yet (e.g. a PR branch), fall back to on-the-fly
+conversion: `apptainer pull docker://ghcr.io/openms/streamlit-template:<tag>`.
+Requires apptainer 1.1+ or singularity-ce 3.10+ for the `oras://` transport.
 
 The entrypoint auto-detects the read-only root filesystem (set by apptainer's
 default isolation) and switches its runtime state — Redis data directory,
