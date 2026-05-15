@@ -199,6 +199,26 @@ This repository contains two Dockerfiles.
    and falls back to the standard upload UI. To use a different container
    path, change `local_data_dir` in `settings.json` before building.
 
+## 🛰️ Run with Apptainer / Singularity (HPC)
+
+Apptainer (formerly Singularity) is the dominant container runtime on HPC
+clusters. Pull the OCI image from GHCR, convert it to a SIF, and run it as
+your user — no root, no `--writable-tmpfs` required:
+
+```bash
+apptainer pull docker://ghcr.io/openms/streamlit-template:latest
+apptainer run \
+  --bind /path/to/data:/mounted-data:ro \
+  --bind /path/to/workspaces:/workspaces-streamlit-template \
+  streamlit-template_latest.sif
+```
+
+The entrypoint auto-detects the read-only root filesystem (set by apptainer's
+default isolation) and switches its runtime state — Redis data directory,
+nginx config, PID files — to `/tmp/openms-runtime-$$`, which is always
+writable inside an apptainer container. The workspace cleanup cron job is
+skipped in this mode; rerun `clean-up-workspaces.py` manually if needed.
+
 ## Documentation
 
 Documentation for **users** and **developers** is included as pages in [this template app](https://abi-services.cs.uni-tuebingen.de/streamlit-template/), indicated by the 📖 icon.
