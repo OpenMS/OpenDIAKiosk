@@ -27,9 +27,13 @@ from src.workflow._log_status import classify_log_outcome
 def _mounted_data_root() -> Union[Path, None]:
     """Return the validated mount root from the ``local_data_dir`` setting.
 
-    The browser renders only when that path resolves to an existing
-    directory inside the container, i.e. when a host volume is actually
-    mounted there.
+    The browser renders only when ``local_data_dir`` is an actual mount
+    point inside the container — i.e. the operator passed ``-v`` /
+    ``--bind`` / ``volumeMount`` to attach host data. Existence alone is
+    no longer sufficient because the image now pre-creates the path so
+    apptainer/singularity binds have a real attach target; without
+    ``os.path.ismount`` the browser would render an empty tree for every
+    user who didn't mount anything.
     """
     settings = st.session_state.get("settings") or {}
     raw = (settings.get("local_data_dir") or "").strip()
@@ -39,7 +43,11 @@ def _mounted_data_root() -> Union[Path, None]:
         p = Path(raw).expanduser().resolve(strict=True)
     except (OSError, RuntimeError):
         return None
-    return p if p.is_dir() else None
+    if not p.is_dir():
+        return None
+    if not os.path.ismount(p):
+        return None
+    return p
 
 
 class StreamlitUI:
