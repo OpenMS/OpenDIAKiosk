@@ -81,6 +81,24 @@ docker stop opendiakiosk && docker rm opendiakiosk
 
 The host directory bound to `/workspaces-streamlit-template` is untouched by `docker rm`, so all user workspaces are preserved across upgrades.
 
+### Run with Singularity
+
+If your host runs [Singularity](https://docs.sylabs.io/) or
+[Apptainer](https://apptainer.org/) instead of Docker (common on rootless
+research workstations and shared VMs), pull the prebuilt SIF straight from
+GHCR via ORAS — no on-the-fly OCI→SIF conversion required:
+
+```bash
+singularity pull oras://ghcr.io/openms/opendiakiosk/sif:latest
+
+singularity run \
+  --bind /path/to/data:/mounted-data:ro \
+  --bind /path/to/workspaces:/workspaces-streamlit-template:rw \
+  sif_latest.sif
+```
+
+You can easily reach it via the same SSH tunnel as the Docker setup (step 3).
+
 ## 💻 Run Locally
 
 To run the app locally:
@@ -207,18 +225,18 @@ ready-to-run image with no on-the-fly OCI→SIF conversion and run it as your
 user — no root, no `--writable-tmpfs` required:
 
 ```bash
-apptainer pull --name openms-streamlit-template.sif \
-  oras://ghcr.io/openms/streamlit-template/sif:latest
+apptainer pull --name opendiakiosk.sif \
+  oras://ghcr.io/openms/opendiakiosk/sif:latest
 apptainer run \
   --bind /path/to/data:/mounted-data:ro \
   --bind /path/to/workspaces:/workspaces-streamlit-template \
-  openms-streamlit-template.sif
+  opendiakiosk.sif
 ```
 
 Available tags follow the same scheme as the Docker images: `latest`,
-`main-full`, `main-simple`, `v*-full`, `v*-simple`, and per-commit SHAs.
+`main-full`, `v*-full`, and per-commit SHAs (e.g. `<sha>-full`).
 If a tag hasn't been prebuilt yet (e.g. a PR branch), fall back to on-the-fly
-conversion: `apptainer pull docker://ghcr.io/openms/streamlit-template:<tag>`.
+conversion: `apptainer pull docker://ghcr.io/openms/opendiakiosk:<tag>`.
 Requires apptainer 1.1+ or singularity-ce 3.10+ for the `oras://` transport.
 
 The entrypoint auto-detects the read-only root filesystem (set by apptainer's
