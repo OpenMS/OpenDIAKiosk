@@ -81,7 +81,7 @@ docker stop opendiakiosk && docker rm opendiakiosk
 
 The host directory bound to `/workspaces-streamlit-template` is untouched by `docker rm`, so all user workspaces are preserved across upgrades.
 
-### Alternative: run with Singularity
+### Run with Singularity
 
 If your host runs [Singularity](https://docs.sylabs.io/) or
 [Apptainer](https://apptainer.org/) instead of Docker (common on rootless
@@ -97,18 +97,7 @@ singularity run \
   sif_latest.sif
 ```
 
-The bind-mount semantics match the Docker `-v` flags above:
-`/mounted-data` is the optional read-only host directory the in-app browser
-auto-detects, and `/workspaces-streamlit-template` persists user workspaces
-across restarts. Streamlit listens on port 8501 inside the container; reach
-it via the same SSH tunnel as the Docker setup (step 3).
-
-Available tags follow the same scheme as the Docker images: `latest`,
-`main-full`, `v*-full`, and per-commit SHAs (e.g. `<sha>-full`). For HPC
-cluster specifics (read-only root filesystem handling, unprivileged runtime,
-runtime-state relocation) see the **Run with Apptainer / Singularity (HPC)**
-section below. Requires singularity-ce 3.10+ or apptainer 1.1+ for the
-`oras://` transport.
+You can easily reach it via the same SSH tunnel as the Docker setup (step 3).
 
 ## 💻 Run Locally
 
