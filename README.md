@@ -71,6 +71,40 @@ Then open <http://localhost:8501> in your local browser. Add `-N` to skip openin
 ssh -N -L 8501:localhost:8501 user@your-server
 ```
 
+#### Windows PowerShell: `Corrupted MAC on input` / `message authentication code incorrect`
+
+If the tunnel drops on Windows PowerShell (or `cmd.exe`) with an error like
+
+```
+Corrupted MAC on input.
+ssh_dispatch_run_fatal: Connection to <host> port 22: message authentication code incorrect
+```
+
+the connection itself is reaching the server — SSH is just failing the per-packet integrity check on the way back. This is almost always one of two things, neither specific to OpenDIAKiosk:
+
+1. **MTU / path-MTU-discovery problem on the network between you and the server.** A router on the path silently drops or mangles large packets (common on some VPNs, hotel/conference Wi-Fi, and certain home routers). The first small packets (auth, banner) succeed; the first big one (often the port-forward setup) gets corrupted and SSH aborts.
+2. **A bad interaction between the bundled Windows OpenSSH client and certain MAC algorithms** (most often `umac-64-etm@openssh.com` / `umac-128-etm@openssh.com`).
+
+Try these in order — each one is a single command, so you can stop as soon as one works:
+
+```powershell
+# 1. Force a known-good HMAC and disable the ETM/UMAC variants
+ssh -o "MACs=hmac-sha2-256,hmac-sha2-512" -L 8501:localhost:8501 user@your-server
+
+# 2. Disable compression (some Windows builds corrupt compressed streams)
+ssh -o "Compression=no" -o "MACs=hmac-sha2-256" -L 8501:localhost:8501 user@your-server
+
+# 3. Lower the effective MTU by asking SSH to keep packets small
+ssh -o "IPQoS=throughput" -o "MACs=hmac-sha2-256" -L 8501:localhost:8501 user@your-server
+```
+
+If none of those help, the problem is upstream of SSH. Two reliable fallbacks on Windows:
+
+- **Use OpenSSH from WSL2** (`wsl --install`, then run the same `ssh -L …` from the Ubuntu shell). WSL's `ssh` does not share the bug and uses Linux's networking stack, which sidesteps the Windows MTU/PMTUD quirks.
+- **Use PuTTY / Pageant** with a *Local* tunnel: Connection → SSH → Tunnels → Source port `8501`, Destination `localhost:8501`, Local. PuTTY's own crypto stack is independent of Windows OpenSSH.
+
+> **CSC Puhti users:** the host `puhti.csc.fi` is reachable as `ulavadad@puhti.csc.fi` (use your CSC username, not your email). Puhti requires an SSH key uploaded via [MyCSC](https://my.csc.fi/) — password auth is disabled. If you can log in normally but the tunnel dies with `Corrupted MAC`, it is the Windows/MTU issue above, not your account.
+
 ### 4. Update to a new version
 
 ```bash
