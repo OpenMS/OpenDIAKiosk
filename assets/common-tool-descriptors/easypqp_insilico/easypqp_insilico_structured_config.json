@@ -25,8 +25,8 @@
             "missed_cleavages": {
               "value_type": "integer",
               "required": false,
-              "default": 0,
-              "value": 0,
+              "default": 1,
+              "value": 1,
               "is_set": true,
               "description": "Maximum allowed missed cleavages during digestion."
             },
@@ -36,8 +36,8 @@
                 "null"
               ],
               "required": false,
-              "default": null,
-              "value": null,
+              "default": 7,
+              "value": 7,
               "is_set": true,
               "description": "Minimum peptide length after digestion."
             },
@@ -47,8 +47,8 @@
                 "null"
               ],
               "required": false,
-              "default": null,
-              "value": null,
+              "default": 30,
+              "value": 30,
               "is_set": true,
               "description": "Maximum peptide length after digestion."
             },
@@ -123,30 +123,16 @@
         "variable_mods": {
           "value_type": "object[string -> array[float]]",
           "required": false,
-          "default": {
-            "[": [
-              42.0
-            ],
-            "M": [
-              15.9949
-            ]
-          },
-          "value": {
-            "[": [
-              42.0
-            ],
-            "M": [
-              15.9949
-            ]
-          },
+          "default": null,
+          "value": null,
           "is_set": true,
           "description": "Variable modifications keyed by specificity/site, each with one or more allowed mass shifts."
         },
         "max_variable_mods": {
           "value_type": "integer",
           "required": false,
-          "default": 3,
-          "value": 3,
+          "default": 1,
+          "value": 1,
           "is_set": true,
           "description": "Maximum number of variable modifications allowed per peptide."
         },
@@ -184,13 +170,11 @@
           "required": true,
           "default": [
             2,
-            3,
-            4
+            3
           ],
           "value": [
             2,
-            3,
-            4
+            3
           ],
           "is_set": true,
           "description": "Allowed precursor charge states."
@@ -198,24 +182,24 @@
         "max_fragment_charge": {
           "value_type": "integer",
           "required": true,
-          "default": 2,
-          "value": 2,
+          "default": 1,
+          "value": 1,
           "is_set": true,
           "description": "Maximum fragment ion charge state."
         },
         "min_transitions": {
           "value_type": "integer",
           "required": true,
-          "default": 2,
-          "value": 2,
+          "default": 6,
+          "value": 6,
           "is_set": true,
           "description": "Minimum number of transitions per precursor."
         },
         "max_transitions": {
           "value_type": "integer",
           "required": true,
-          "default": 20,
-          "value": 20,
+          "default": 6,
+          "value": 6,
           "is_set": true,
           "description": "Maximum number of transitions per precursor."
         },

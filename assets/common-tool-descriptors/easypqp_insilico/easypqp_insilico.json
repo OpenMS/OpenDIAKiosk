@@ -2,9 +2,9 @@
   "version": "0.1.9",
   "database": {
     "enzyme": {
-      "missed_cleavages": 0,
-      "min_len": null,
-      "max_len": null,
+      "missed_cleavages": 1,
+      "min_len": 7,
+      "max_len": 30,
       "cleave_at": "KR",
       "restrict": "P",
       "c_terminal": null,
@@ -15,15 +15,8 @@
     "static_mods": {
       "C": 57.0215
     },
-    "variable_mods": {
-      "[": [
-        42.0
-      ],
-      "M": [
-        15.9949
-      ]
-    },
-    "max_variable_mods": 3,
+    "variable_mods": null,
+    "max_variable_mods": 1,
     "decoy_tag": "rev_",
     "generate_decoys": false,
     "fasta": ""
@@ -31,12 +24,11 @@
   "insilico_settings": {
     "precursor_charge": [
       2,
-      3,
-      4
+      3
     ],
-    "max_fragment_charge": 2,
-    "min_transitions": 2,
-    "max_transitions": 20,
+    "max_fragment_charge": 1,
+    "min_transitions": 6,
+    "max_transitions": 6,
     "fragmentation_model": "hcd",
     "allowed_fragment_types": [
       "b",
