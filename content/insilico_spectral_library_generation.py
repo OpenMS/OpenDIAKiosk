@@ -78,7 +78,9 @@ with col1:
         help="FASTA file with protein sequences to digest and generate a library from.",
     )
     if fasta_file is not None:
-        st.caption("Uploaded FASTA will be saved into the workspace before the run starts.")
+        st.caption(
+            "Uploaded FASTA will be saved into the workspace before the run starts."
+        )
     elif not workspace_fasta_options:
         st.caption("No FASTA files currently saved in the workspace.")
 with col2:
@@ -126,7 +128,7 @@ with st.expander("⚙️ Advanced Database Settings", expanded=False):
             "Missed Cleavages",
             min_value=0,
             max_value=5,
-            value=0,
+            value=1,
             key="adv_missed_cleavages",
             help="Number of allowed missed cleavages.",
         )
@@ -165,7 +167,7 @@ with st.expander("⚙️ Advanced Database Settings", expanded=False):
             "Min Peptide Length",
             min_value=0,
             max_value=100,
-            value=0,
+            value=7,
             step=1,
             key="adv_min_pep_len",
             help="Minimum peptide length (0 = no restriction).",
@@ -174,7 +176,7 @@ with st.expander("⚙️ Advanced Database Settings", expanded=False):
             "Max Peptide Length",
             min_value=0,
             max_value=100,
-            value=0,
+            value=30,
             step=1,
             key="adv_max_pep_len",
             help="Maximum peptide length (0 = no restriction).",
@@ -184,7 +186,7 @@ with st.expander("⚙️ Advanced Database Settings", expanded=False):
             "Max Variable Modifications",
             min_value=0,
             max_value=10,
-            value=3,
+            value=2,
             key="adv_max_var_mods",
             help="Maximum number of variable modifications per peptide.",
         )
@@ -367,7 +369,7 @@ with col2:
         "Max Fragment Charge",
         min_value=1,
         max_value=8,
-        value=2,
+        value=1,
         step=1,
         help="Maximum charge state for fragment ions.",
     )
