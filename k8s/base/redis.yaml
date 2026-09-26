@@ -6,6 +6,11 @@ metadata:
     component: redis
 spec:
   replicas: 1
+  # Recreate: never run two Redis pods behind the Service at once. Queue state
+  # lives only in this pod, so a rolling replacement would silently switch
+  # workers to an empty instance.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       component: redis
