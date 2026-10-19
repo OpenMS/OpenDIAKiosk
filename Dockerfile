@@ -37,6 +37,15 @@ RUN set -eux; \
         wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
             https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
         apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
+        # The apt-source package on Maven Central is stuck at 19.0.1 and its
+        # keyring predates the key the Arrow repo is now signed with
+        # (NO_PUBKEY 9E922B2D60E9FD1C), so trust Apache Arrow's published KEYS.
+        GNUPGHOME=$(mktemp -d); export GNUPGHOME; \
+        wget -qO /tmp/arrow-KEYS https://downloads.apache.org/arrow/KEYS; \
+        gpg --batch --import /tmp/arrow-KEYS; \
+        gpg --batch --export > /usr/share/keyrings/apache-arrow-keys.gpg; \
+        sed -i 's|^Signed-By: .*|Signed-By: /usr/share/keyrings/apache-arrow-keys.gpg|' /etc/apt/sources.list.d/apache-arrow.sources; \
+        rm -rf /tmp/arrow-KEYS "$GNUPGHOME"; unset GNUPGHOME; \
         apt-get update; \
         # Pin Arrow 23: find a libparquet-dev candidate that starts with 23.
         ARROW_VER=$(apt-cache madison libparquet-dev | awk '{print $3}' | grep -E '^23\.' | head -n1) || true; \
@@ -82,7 +91,7 @@ SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
 
 # Install up-to-date cmake via mamba and packages for pyOpenMS build.
 RUN mamba install cmake
-RUN pip install --upgrade pip && python -m pip install -U setuptools nose cython "autowrap<=0.24" pandas numpy pytest
+RUN pip install --upgrade pip && python -m pip install -U setuptools nose "cython>=3.1.0,<3.3" "autowrap<=0.24" pandas numpy pytest
 
 # Clone OpenMS branch and the associcated contrib+thirdparties+pyOpenMS-doc submodules.
 RUN git clone --recursive --depth=1 -b ${OPENMS_BRANCH} --single-branch ${OPENMS_REPO} && cd /OpenMS
@@ -250,6 +259,12 @@ ENV STREAMLIT_SERVER_COUNT=1
 # Streamlit server. The script falls back to /tmp paths under apptainer.
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
+
+# Install the demo-seeding script run by the seed-demos initContainer
+# (k8s/base/streamlit-deployment.yaml). One copy of the logic, so what the
+# image ships is what tests/test_seed_demos.py executes.
+COPY docker/seed-demos.sh /app/docker/seed-demos.sh
+RUN chmod +x /app/docker/seed-demos.sh
 
 # Patch Analytics
 RUN mamba run -n streamlit-env python hooks/hook-analytics.py

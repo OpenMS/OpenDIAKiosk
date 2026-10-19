@@ -569,7 +569,9 @@ class StreamlitUI:
         if not path.exists():
             st.warning(f"No **{name}** files!")
             return
-        options = [str(f) for f in path.iterdir() if "external_files.txt" not in str(f)]
+        options = sorted(
+            str(f) for f in path.iterdir() if "external_files.txt" not in str(f)
+        )
 
         # Check if local files are available
         external_files = Path(
@@ -732,11 +734,21 @@ class StreamlitUI:
 
         key = f"{self.parameter_manager.param_prefix}{key}"
 
+        # Streamlit ignores a widget's initial-value argument (value=/default=/index=)
+        # once that key already exists in session state -- but on Streamlit < 1.50 the
+        # argument is still hashed into the widget's element id. Since this method feeds
+        # the persisted parameter straight back in as that argument, the id changed on
+        # every interaction, the following interaction arrived under the now-stale id and
+        # was silently dropped: selecting six mzML files kept only three. Seed the widget
+        # on first render only; from then on session state owns the value.
+        def seed(**kwargs: Any) -> dict:
+            return {} if key in st.session_state else kwargs
+
         if widget_type == "text":
-            st.text_input(name, value=value, key=key, help=help, on_change=on_change)
+            st.text_input(name, key=key, help=help, on_change=on_change, **seed(value=value))
 
         elif widget_type == "textarea":
-            st.text_area(name, value=value, key=key, help=help, on_change=on_change)
+            st.text_area(name, key=key, help=help, on_change=on_change, **seed(value=value))
 
         elif widget_type == "number":
             number_type = float if isinstance(value, float) else int
@@ -750,27 +762,27 @@ class StreamlitUI:
                 name,
                 min_value=min_value,
                 max_value=max_value,
-                value=value,
                 step=step_size,
                 format=None,
                 key=key,
                 help=help,
                 on_change=on_change,
+                **seed(value=value),
             )
 
         elif widget_type == "checkbox":
-            st.checkbox(name, value=value, key=key, help=help, on_change=on_change)
+            st.checkbox(name, key=key, help=help, on_change=on_change, **seed(value=value))
 
         elif widget_type == "selectbox":
             if options is not None:
                 st.selectbox(
                     name,
                     options=options,
-                    index=options.index(value) if value in options else 0,
                     key=key,
                     format_func=format_files,
                     help=help,
                     on_change=on_change,
+                    **seed(index=options.index(value) if value in options else 0),
                 )
             else:
                 st.warning(f"Select widget '{name}' requires options parameter")
@@ -780,11 +792,11 @@ class StreamlitUI:
                 st.multiselect(
                     name,
                     options=options,
-                    default=value,
                     key=key,
                     format_func=format_files,
                     help=help,
                     on_change=on_change,
+                    **seed(default=value),
                 )
             else:
                 st.warning(f"Select widget '{name}' requires options parameter")
@@ -801,12 +813,12 @@ class StreamlitUI:
                     name,
                     min_value=min_value,
                     max_value=max_value,
-                    value=value,
                     step=step_size,
                     key=key,
                     format=None,
                     help=help,
                     on_change=on_change,
+                    **seed(value=value),
                 )
             else:
                 st.warning(
@@ -814,19 +826,12 @@ class StreamlitUI:
                 )
 
         elif widget_type == "password":
-            st.text_input(
-                name,
-                value=value,
-                type="password",
-                key=key,
-                help=help,
-                on_change=on_change,
-            )
+            st.text_input(name, type="password", key=key, help=help, on_change=on_change, **seed(value=value))
 
         elif widget_type == "auto":
             # Auto-determine widget type based on value
             if isinstance(value, bool):
-                st.checkbox(name, value=value, key=key, help=help, on_change=on_change)
+                st.checkbox(name, key=key, help=help, on_change=on_change, **seed(value=value))
             elif isinstance(value, (int, float)):
                 self._input_widget_impl(
                     key,
@@ -2174,7 +2179,10 @@ class StreamlitUI:
                 key="param_import_uploader",
             )
             if up is not None:
-                with open(self.parameter_manager.params_file, "w") as f:
+                # encoding="utf-8" explicitly: the payload is decoded as utf-8
+                # just above, and writing it back in the platform codepage
+                # produced a params.json that no later utf-8 read could decode.
+                with open(self.parameter_manager.params_file, "w", encoding="utf-8") as f:
                     f.write(up.read().decode("utf-8"))
                 self.parameter_manager.clear_parameter_session_state()
                 st.toast("Parameters imported")
@@ -2388,7 +2396,8 @@ Started: {status.get("started_at", "N/A")}""")
         general = {}
 
         for k, v in params.items():
-            # skip if v is a file path
+            if k == "_defaults":
+                continue
             if isinstance(v, dict):
                 topp[k] = v
             elif ".py" in k:
@@ -2398,6 +2407,13 @@ Started: {status.get("started_at", "N/A")}""")
                 python[script][k.split(".py")[1][1:]] = v
             else:
                 general[k] = v
+
+        # Merge _defaults into topp so summary shows custom defaults + user overrides
+        defaults = params.get("_defaults", {})
+        for tool_name, default_vals in defaults.items():
+            if tool_name not in topp:
+                topp[tool_name] = {}
+            topp[tool_name] = {**default_vals, **topp.get(tool_name, {})}
 
         markdown = []
 
