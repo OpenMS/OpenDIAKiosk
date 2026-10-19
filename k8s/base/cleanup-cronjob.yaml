@@ -11,6 +11,12 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # concurrencyPolicy above is Forbid, so an Active Job suppresses every
+      # later schedule. Without a deadline, one run wedged on the workspaces
+      # mount silently blocks cleanup forever. The deadline forces the Job to
+      # Failed, which is terminal, so the next night runs. The in-container
+      # `timeout` below covers the reachable-but-slow cases.
+      activeDeadlineSeconds: 3600
       template:
         metadata:
           labels:
@@ -35,8 +41,11 @@ spec:
               command: ["/bin/bash", "-c"]
               args:
                 - |
+                  set -euo pipefail
                   source /root/miniforge3/bin/activate streamlit-env
-                  exec python clean-up-workspaces.py
+                  # Inside activeDeadlineSeconds (3600), so the Job still fails
+                  # if this somehow outlives its own bound.
+                  exec timeout -k 60 3000 python clean-up-workspaces.py
               env:
                 - name: WORKSPACES_DIR
                   value: "/workspaces-streamlit-template"

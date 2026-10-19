@@ -82,7 +82,7 @@ SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
 
 # Install up-to-date cmake via mamba and packages for pyOpenMS build.
 RUN mamba install cmake
-RUN pip install --upgrade pip && python -m pip install -U setuptools nose cython "autowrap<=0.24" pandas numpy pytest
+RUN pip install --upgrade pip && python -m pip install -U setuptools nose "cython>=3.1.0,<3.3" "autowrap<=0.24" pandas numpy pytest
 
 # Clone OpenMS branch and the associcated contrib+thirdparties+pyOpenMS-doc submodules.
 RUN git clone --recursive --depth=1 -b ${OPENMS_BRANCH} --single-branch ${OPENMS_REPO} && cd /OpenMS
@@ -250,6 +250,12 @@ ENV STREAMLIT_SERVER_COUNT=1
 # Streamlit server. The script falls back to /tmp paths under apptainer.
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
+
+# Install the demo-seeding script run by the seed-demos initContainer
+# (k8s/base/streamlit-deployment.yaml). One copy of the logic, so what the
+# image ships is what tests/test_seed_demos.py executes.
+COPY docker/seed-demos.sh /app/docker/seed-demos.sh
+RUN chmod +x /app/docker/seed-demos.sh
 
 # Patch Analytics
 RUN mamba run -n streamlit-env python hooks/hook-analytics.py
