@@ -37,6 +37,15 @@ RUN set -eux; \
         wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
             https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
         apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
+        # The apt-source package on Maven Central is stuck at 19.0.1 and its
+        # keyring predates the key the Arrow repo is now signed with
+        # (NO_PUBKEY 9E922B2D60E9FD1C), so trust Apache Arrow's published KEYS.
+        GNUPGHOME=$(mktemp -d); export GNUPGHOME; \
+        wget -qO /tmp/arrow-KEYS https://downloads.apache.org/arrow/KEYS; \
+        gpg --batch --import /tmp/arrow-KEYS; \
+        gpg --batch --export > /usr/share/keyrings/apache-arrow-keys.gpg; \
+        sed -i 's|^Signed-By: .*|Signed-By: /usr/share/keyrings/apache-arrow-keys.gpg|' /etc/apt/sources.list.d/apache-arrow.sources; \
+        rm -rf /tmp/arrow-KEYS "$GNUPGHOME"; unset GNUPGHOME; \
         apt-get update; \
         # Pin Arrow 23: find a libparquet-dev candidate that starts with 23.
         ARROW_VER=$(apt-cache madison libparquet-dev | awk '{print $3}' | grep -E '^23\.' | head -n1) || true; \
