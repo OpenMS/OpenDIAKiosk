@@ -15,7 +15,7 @@ commonLabels:
 images:
   - name: openms-streamlit
     newName: ghcr.io/openms/opendiakiosk
-    newTag: main-full
+    newTag: v-1.1-full
 
 patches:
   - target:
