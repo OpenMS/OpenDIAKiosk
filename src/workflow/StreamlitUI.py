@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from typing import Any, Union, List, Literal, Callable
 import json
+import math
 import os
 import sys
 import importlib.util
@@ -22,6 +23,31 @@ from src.common.common import (
     tk_file_dialog,
 )
 from src.workflow._log_status import classify_log_outcome
+
+
+def _matches_topp_parameter(pattern: str, key: Union[bytes, str]) -> bool:
+    """
+    Match an include/exclude pattern against a TOPP parameter key.
+
+    Key format: b"ToolName:1:section:subsection:param_name"
+
+    A pattern matches the end of the parameter path, bounded by ':' or the
+    start of the path ("tol" matches "FD:tol"). A pattern ending in ':' names
+    a whole section from the top of the path instead ("fd:" matches every
+    parameter under "fd:", but not "FD:" or "algorithm:fd:").
+    """
+    pattern = pattern.lstrip(":")  # Strip legacy leading colon
+    key_str = key.decode() if isinstance(key, (bytes, bytearray)) else str(key)
+
+    # Extract param path after "ToolName:1:"
+    parts = key_str.split(":")
+    param_path = ":".join(parts[2:]) if len(parts) > 2 else key_str
+
+    if pattern.endswith(":"):
+        return param_path.startswith(pattern)
+
+    # Check if pattern matches as a suffix, bounded by ':' or start
+    return param_path == pattern or param_path.endswith(":" + pattern)
 
 
 def _mounted_data_root() -> Union[Path, None]:
@@ -107,11 +133,14 @@ class StreamlitUI:
             name = key.replace("-", " ")
 
         c1, c2 = st.columns(2)
-        c1.markdown("**Upload file(s)**")
 
         mount_root = _mounted_data_root() if st.session_state.location == "online" else None
 
         if st.session_state.location == "local":
+            # A local install reads files straight from disk, so the browser
+            # upload widget (which streams every byte through the browser) is
+            # not offered. Files are picked from disk and copied or referenced.
+            c1.markdown("**Add file(s) from your computer**")
             c2_text, c2_checkbox = c2.columns([1.5, 1], gap="large")
             c2_text.markdown("**OR add files from local folder**")
             use_copy = c2_checkbox.checkbox(
@@ -121,20 +150,21 @@ class StreamlitUI:
                 help="Create a copy of files in workspace.",
             )
         else:
+            c1.markdown("**Upload file(s)**")
             use_copy = True
 
         # Convert file_types to a list if it's a string
         if isinstance(file_types, str):
             file_types = [file_types]
 
-        if use_copy:
+        if st.session_state.location != "local":
             with c1.form(f"{key}-upload", clear_on_submit=True):
                 # Streamlit file uploader accepts file types as a list or None
                 file_type_for_uploader = file_types if file_types else None
 
                 files = st.file_uploader(
                     f"{name}",
-                    accept_multiple_files=(st.session_state.location == "local"),
+                    accept_multiple_files=False,
                     type=file_type_for_uploader,
                     label_visibility="collapsed",
                 )
@@ -156,29 +186,20 @@ class StreamlitUI:
                     else:
                         st.error("Nothing to add, please upload file.")
         else:
-            # Create a temporary file to store the path to the local directories
             external_files = Path(files_dir, "external_files.txt")
-            # Check if the file exists, if not create it
-            if not external_files.exists():
-                external_files.touch()
             c1.write("\n")
             with c1.container(border=True):
                 dialog_button = st.button(
                     rf"$\textsf{{\Large 📁 Add }} \textsf{{ \Large \textbf{{{name}}} }}$",
                     type="primary",
                     use_container_width=True,
-                    key="local_browse_single",
+                    key=f"local_browse_single_{key}",
                     help="Browse for your local MS data files.",
                     disabled=not TK_AVAILABLE,
                 )
 
                 # Tk file dialog requires file types to be a list of tuples
-                if isinstance(file_types, str):
-                    tk_file_types = [(f"{file_types}", f"*.{file_types}")]
-                elif isinstance(file_types, list):
-                    tk_file_types = [(f"{ft}", f"*.{ft}") for ft in file_types]
-                else:
-                    raise ValueError("'file_types' must be either of type str or list")
+                tk_file_types = [(f"{ft}", f"*.{ft}") for ft in file_types]
 
                 if dialog_button:
                     local_files = tk_file_dialog(
@@ -189,8 +210,19 @@ class StreamlitUI:
                     if local_files:
                         my_bar = st.progress(0)
                         for i, f in enumerate(local_files):
-                            with open(external_files, "a") as f_handle:
-                                f_handle.write(f"{f}\n")
+                            my_bar.progress((i + 1) / len(local_files))
+                            if use_copy:
+                                if os.path.isdir(f):
+                                    shutil.copytree(
+                                        f,
+                                        Path(files_dir, Path(f).name),
+                                        dirs_exist_ok=True,
+                                    )
+                                else:
+                                    shutil.copy(f, Path(files_dir, Path(f).name))
+                            else:
+                                with open(external_files, "a") as f_handle:
+                                    f_handle.write(f"{f}\n")
                         my_bar.empty()
                         st.success("Successfully added files!")
 
@@ -763,7 +795,9 @@ class StreamlitUI:
                 min_value=min_value,
                 max_value=max_value,
                 step=step_size,
-                format=None,
+                # "%g" keeps every decimal the user types; Streamlit's float
+                # default "%0.2f" rounds to two.
+                format="%g" if number_type is float else None,
                 key=key,
                 help=help,
                 on_change=on_change,
@@ -932,7 +966,7 @@ class StreamlitUI:
         Args:
             topp_tool_name (str): The name of the TOPP tool for which to generate inputs.
             num_cols (int, optional): Number of columns to use for the layout. Defaults to 3.
-            exclude_parameters (List[str], optional): List of parameter names to exclude from the widget. Defaults to an empty list.
+            exclude_parameters (List[str], optional): List of parameter names to exclude from the widget. A name ending in ":" excludes that whole top-level section (e.g. "fd:"). Defaults to an empty list.
             include_parameters (List[str], optional): List of parameter names to include in the widget. Defaults to an empty list.
             display_tool_name (bool, optional): Whether to display the TOPP tool name. Defaults to True.
             display_subsections (bool, optional): Whether to split parameters into subsections based on the prefix. Defaults to True.
@@ -967,28 +1001,6 @@ class StreamlitUI:
         param = poms.Param()
         poms.ParamXMLFile().load(str(ini_file_path), param)
 
-        def _matches_parameter(pattern: str, key: bytes | str) -> bool:
-            """
-            Match pattern against TOPP parameter key using suffix matching.
-
-            Key format: b"ToolName:1:section:subsection:param_name"
-
-            Returns True if pattern matches the end of the param path,
-            bounded by ':' or start of path.
-            """
-            pattern = pattern.lstrip(":")  # Strip legacy leading colon
-            # Normalize key to string whether bytes or str
-            if isinstance(key, (bytes, bytearray)):
-                key_str = key.decode()
-            else:
-                key_str = str(key)
-
-            # Extract param path after "ToolName:1:"
-            parts = key_str.split(":")
-            param_path = ":".join(parts[2:]) if len(parts) > 2 else key_str
-
-            # Check if pattern matches as a suffix, bounded by ':' or start
-            return param_path == pattern or param_path.endswith(":" + pattern)
 
         # Always apply base exclusions (standard excludes)
         excluded_keys = [
@@ -1018,7 +1030,7 @@ class StreamlitUI:
         valid_keys = [
             key
             for key in param.keys()
-            if not any([_matches_parameter(k, key) for k in excluded_keys])
+            if not any([_matches_topp_parameter(k, key) for k in excluded_keys])
         ]
 
         # Track which keys are "included" (shown by default) vs "non-included" (advanced only)
@@ -1026,7 +1038,7 @@ class StreamlitUI:
             included_keys = {
                 key
                 for key in valid_keys
-                if any([_matches_parameter(k, key) for k in include_parameters])
+                if any([_matches_topp_parameter(k, key) for k in include_parameters])
             }
         else:
             included_keys = set(valid_keys)  # All are included when no filter specified
@@ -1403,10 +1415,13 @@ class StreamlitUI:
 
                     # floats
                     elif isinstance(p["value"], float):
+                        # Streamlit's default "%0.2f" rounds what the user
+                        # types to two decimals; "%g" shows the value as typed.
                         cols[i].number_input(
                             name,
                             value=float(p["value"]),
                             step=_float_step(p["value"]),
+                            format="%g",
                             help=p["description"],
                             key=key,
                         )
@@ -2091,20 +2106,29 @@ class StreamlitUI:
             col_idx = i % num_cols
             description = self.parameter_manager.get_preset_description(preset_name)
             with cols[col_idx]:
-                if st.button(
+                # Applied in a callback, before the rerun starts, rather than with
+                # st.rerun() from the button branch: that interrupts the script before
+                # configure() renders its widgets, and Streamlit drops the state of
+                # every widget a run does not reach. Their keys survive, so the
+                # widgets re-render from an empty value, e.g. the mzML file selection
+                # is lost and the next start fails with no input files.
+                st.button(
                     preset_name,
                     key=f"preset_{preset_name}",
                     help=description if description else None,
                     use_container_width=True,
-                ):
-                    if self.parameter_manager.apply_preset(preset_name):
-                        st.toast(f"Applied preset: {preset_name}")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to apply preset: {preset_name}")
+                    on_click=self._apply_preset_callback,
+                    args=(preset_name,),
+                )
             # Start new row if needed
             if col_idx == num_cols - 1 and i < len(preset_names) - 1:
                 cols = st.columns(num_cols)
+
+    def _apply_preset_callback(self, preset_name: str) -> None:
+        if self.parameter_manager.apply_preset(preset_name):
+            st.toast(f"Applied preset: {preset_name}")
+        else:
+            st.toast(f"Failed to apply preset: {preset_name}", icon="⚠️")
 
     def file_upload_section(self, custom_upload_function) -> None:
         custom_upload_function()
@@ -2359,6 +2383,123 @@ Started: {status.get("started_at", "N/A")}""")
 
     def results_section(self, custom_results_function) -> None:
         custom_results_function()
+
+    def results_download_section(
+        self, exclude: list[str] | None = None, results_dir: str | Path | None = None
+    ) -> None:
+        """
+        Offer every file under the workflow's results directory for download.
+
+        Lists the files, lets the user download any single one, and builds a
+        ZIP of the chosen result folders on request. Only the selected file (or
+        the ZIP) is read into memory, so large result sets stay cheap to render.
+
+        Args:
+            exclude: Names of files or folders to leave out (matched against
+                every part of a file's path relative to the results directory,
+                glob patterns allowed), e.g. caches: ``["insight_cache", "*.tmp"]``.
+            results_dir: Directory to offer. Defaults to ``<workflow_dir>/results``.
+        """
+        from fnmatch import fnmatch
+
+        results_dir = Path(results_dir or Path(self.workflow_dir, "results"))
+        exclude = list(exclude or [])
+
+        def excluded(rel: Path) -> bool:
+            return any(fnmatch(part, pattern) for part in rel.parts for pattern in exclude)
+
+        files = []
+        if results_dir.exists():
+            for path in sorted(results_dir.rglob("*")):
+                rel = path.relative_to(results_dir)
+                if path.is_file() and not excluded(rel):
+                    files.append(rel)
+
+        if not files:
+            st.info("No results to download yet. Run the workflow first.")
+            return
+
+        def folder_of(rel: Path) -> str:
+            return rel.parts[0] if len(rel.parts) > 1 else "."
+
+        def human_size(n_bytes: float) -> str:
+            for unit in ["B", "KB", "MB", "GB"]:
+                if n_bytes < 1024 or unit == "GB":
+                    return f"{n_bytes:.0f} {unit}" if unit == "B" else f"{n_bytes:.1f} {unit}"
+                n_bytes /= 1024
+
+        st.dataframe(
+            [
+                {
+                    "Folder": folder_of(rel),
+                    "File": str(rel.relative_to(folder_of(rel))),
+                    "Size": human_size(Path(results_dir, rel).stat().st_size),
+                    "Modified": datetime.fromtimestamp(
+                        Path(results_dir, rel).stat().st_mtime
+                    ).strftime("%Y-%m-%d %H:%M"),
+                }
+                for rel in files
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+        key_prefix = f"results-download-{Path(self.workflow_dir).name}"
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("**Single file**")
+            selected = st.selectbox(
+                "File",
+                files,
+                format_func=str,
+                key=f"{key_prefix}-file",
+                label_visibility="collapsed",
+            )
+            if selected is not None:
+                st.download_button(
+                    "⬇️ Download file",
+                    data=Path(results_dir, selected).read_bytes(),
+                    file_name=Path(selected).name,
+                    key=f"{key_prefix}-file-button",
+                    width="stretch",
+                )
+
+        with c2:
+            st.markdown("**ZIP archive**")
+            folders = sorted({folder_of(rel) for rel in files})
+            chosen = st.multiselect(
+                "Folders",
+                folders,
+                default=folders,
+                key=f"{key_prefix}-folders",
+                label_visibility="collapsed",
+            )
+            zip_path = Path(self.workflow_dir, "downloads", "results.zip")
+            prepared_key = f"{key_prefix}-prepared"
+            if st.button(
+                "📦 Prepare ZIP",
+                disabled=not chosen,
+                key=f"{key_prefix}-zip",
+                width="stretch",
+            ):
+                zip_path.parent.mkdir(parents=True, exist_ok=True)
+                selected_files = [rel for rel in files if folder_of(rel) in chosen]
+                with st.spinner(f"Compressing {len(selected_files)} files..."):
+                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        for rel in selected_files:
+                            zip_file.write(Path(results_dir, rel), Path("results", rel))
+                st.session_state[prepared_key] = sorted(chosen)
+            if st.session_state.get(prepared_key) == sorted(chosen) and zip_path.exists():
+                with open(zip_path, "rb") as f:
+                    st.download_button(
+                        "⬇️ Download ZIP",
+                        data=f,
+                        file_name=f"{Path(self.workflow_dir).name}-results.zip",
+                        mime="application/zip",
+                        key=f"{key_prefix}-zip-button",
+                        width="stretch",
+                    )
 
     def non_default_params_summary(self):
         # Display a summary of non-default TOPP parameters and all others (custom and python scripts)
