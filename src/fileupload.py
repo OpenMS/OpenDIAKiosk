@@ -3,7 +3,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from src.common.common import reset_directory, OS_PLATFORM
+from src.common.common import reset_directory, LINK_EXAMPLE_FILES
 
 
 def save_uploaded_mzML(uploaded_files: list[bytes]) -> None:
@@ -104,7 +104,7 @@ def load_example_mzML_files(pattern: str | None = None) -> None:
         ]
     for f in example_files:
         target = mzML_dir / f.name
-        if OS_PLATFORM == "linux":
+        if LINK_EXAMPLE_FILES:
             if target.exists():
                 target.unlink()
             target.symlink_to(f.resolve())
@@ -146,7 +146,7 @@ def load_example_fasta_files(pattern: str | None = None) -> None:
 
     for f in example_files:
         target = fasta_dir / f.name
-        if OS_PLATFORM == "linux":
+        if LINK_EXAMPLE_FILES:
             if target.exists():
                 target.unlink()
             target.symlink_to(f.resolve())
