@@ -28,7 +28,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 from src.common.standalone_report import (
     ReportFigure,
     ReportSection,
@@ -1884,9 +1884,8 @@ else:
                 title=f"Union coverage across experiments ({entity_label})",
             )
             plot_col_a, plot_col_b = st.columns(2)
-            plot_col_a.plotly_chart(overlap_plot, use_container_width=True)
-            plot_col_b.plotly_chart(
-                union_plot,
+            plot_col_a.plotly_chart(follow_app_theme(overlap_plot), use_container_width=True)
+            plot_col_b.plotly_chart(follow_app_theme(union_plot),
                 use_container_width=True,
             )
             if overlap_note:
@@ -1898,8 +1897,7 @@ else:
                 title=f"Jaccard similarity across experiments ({entity_label})",
             )
             detail_col_a, detail_col_b = st.columns(2)
-            detail_col_a.plotly_chart(
-                jaccard_plot,
+            detail_col_a.plotly_chart(follow_app_theme(jaccard_plot),
                 use_container_width=True,
             )
             baseline_overlap_plot = None
@@ -1913,8 +1911,7 @@ else:
                     color=color,
                     title=f"Baseline overlap vs {library_baseline_name}",
                 )
-                detail_col_b.plotly_chart(
-                    baseline_overlap_plot,
+                detail_col_b.plotly_chart(follow_app_theme(baseline_overlap_plot),
                     use_container_width=True,
                 )
                 detail_col_b.dataframe(
@@ -2170,9 +2167,8 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
             title=f"Union coverage across experiments ({entity_label})",
         )
         plot_col_a, plot_col_b = st.columns(2)
-        plot_col_a.plotly_chart(overlap_plot, use_container_width=True)
-        plot_col_b.plotly_chart(
-            union_plot,
+        plot_col_a.plotly_chart(follow_app_theme(overlap_plot), use_container_width=True)
+        plot_col_b.plotly_chart(follow_app_theme(union_plot),
             use_container_width=True,
         )
         if overlap_note:
@@ -2184,8 +2180,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
             title=f"Jaccard similarity across experiments ({entity_label})",
         )
         plot_col_c, plot_col_d = st.columns(2)
-        plot_col_c.plotly_chart(
-            jaccard_plot,
+        plot_col_c.plotly_chart(follow_app_theme(jaccard_plot),
             use_container_width=True,
         )
         baseline_overlap_plot = None
@@ -2199,8 +2194,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                 color=color,
                 title=f"Identification overlap vs {level_baseline_name}",
             )
-            plot_col_d.plotly_chart(
-                baseline_overlap_plot,
+            plot_col_d.plotly_chart(follow_app_theme(baseline_overlap_plot),
                 use_container_width=True,
             )
 
@@ -2236,8 +2230,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                 entity_label=entity_label,
                 title=f"Origin of uniquely identified {entity_label}",
             )
-            unique_origin_col_a.plotly_chart(
-                unique_origin_plot,
+            unique_origin_col_a.plotly_chart(follow_app_theme(unique_origin_plot),
                 use_container_width=True,
             )
             unique_origin_col_b.dataframe(
@@ -2270,8 +2263,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                 entity_label=entity_label,
                 title=f"log2 intensity distribution across experiments ({entity_label})",
             )
-            quant_col_a.plotly_chart(
-                quant_plot,
+            quant_col_a.plotly_chart(follow_app_theme(quant_plot),
                 use_container_width=True,
             )
 
@@ -2284,8 +2276,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                 entity_label=entity_label,
                 title=f"Geometric CV distribution across experiments ({entity_label})",
             )
-            quant_col_b.plotly_chart(
-                gcv_plot,
+            quant_col_b.plotly_chart(follow_app_theme(gcv_plot),
                 use_container_width=True,
             )
 
@@ -2337,8 +2328,7 @@ for tab, level in zip(result_tabs, LEVEL_ORDER):
                     entity_label=entity_label,
                     title=f"Baseline mean intensity comparison ({entity_label})",
                 )
-                summary_col_b.plotly_chart(
-                    scatter_plot,
+                summary_col_b.plotly_chart(follow_app_theme(scatter_plot),
                     use_container_width=True,
                 )
 
