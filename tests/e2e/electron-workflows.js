@@ -23,21 +23,27 @@ async function plots(t, min, where) {
   if (n < min) throw new Error(`${where}: expected at least ${min} plots, got ${n}`);
 }
 
+// Starts a step that computes during the rerun it triggers; t.clickButton
+// would give up after the default two-minute settle, which the Windows
+// runner exceeds for the semi-supervised scoring.
+async function runStep(t, button, doneText) {
+  await t.page.getByRole("button", { name: button }).first().click();
+  await t.waitForText(doneText, { timeout: STEP_TIMEOUT });
+  await t.settle({ timeout: STEP_TIMEOUT });
+}
+
 module.exports = async (t) => {
   await t.open("dia_01_targeted_data_extraction");
-  await t.clickButton("▶ Load DIA Data");
-  await t.waitForText("Data loaded successfully.", { timeout: STEP_TIMEOUT });
+  await runStep(t, "▶ Load DIA Data", "Data loaded successfully.");
   await plots(t, 1, "Targeted Data Extraction (loaded)");
-  await t.clickButton("▶ Perform Targeted Extraction");
-  await t.waitForText("Stage 3", { timeout: STEP_TIMEOUT });
+  await runStep(t, "▶ Perform Targeted Extraction", "Stage 3");
   await plots(t, 3, "Targeted Data Extraction (extracted)");
   await t.shot("targeted-extraction");
 
   await t.open("dia_04_statistical_validation");
   await t.clickButton("▶ Load Feature Data");
   await plots(t, 1, "Statistical Validation (loaded)");
-  await t.clickButton("▶ Run Semi-Supervised Learning");
-  await t.waitForText("semi-supervised model performance", { timeout: STEP_TIMEOUT });
+  await runStep(t, "▶ Run Semi-Supervised Learning", "semi-supervised model performance");
   await t.shot("statistical-validation");
 
   await t.open("openswath_workflow");
