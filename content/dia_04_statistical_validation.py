@@ -28,7 +28,7 @@ try:
 except ImportError:
     XGBOOST_AVAILABLE = False
 
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 
 page_setup()
 
@@ -605,7 +605,7 @@ def render_stage_1() -> None:
         legend=dict(title="Label"),
         title_text=f"Score distribution: {eda_score}",
     )
-    st.plotly_chart(fig_eda, use_container_width=True)
+    st.plotly_chart(follow_app_theme(fig_eda), use_container_width=True)
 
 
 @st.fragment
@@ -935,7 +935,7 @@ upward toward (1,1) where true positives dominate.
             title_text=f"{nm}  |  π₀ = {pi0_v:.3f}  |  IDs @ 1% FDR: {n_ids:,}",
             legend=dict(title="Label"),
         )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(follow_app_theme(fig3), use_container_width=True)
 
 
 @st.fragment
@@ -1023,7 +1023,7 @@ permutation importance are **magnitude-only** measures.
             yaxis_title="",
             height=400,
         )
-        st.plotly_chart(fig_imp, use_container_width=True)
+        st.plotly_chart(follow_app_theme(fig_imp), use_container_width=True)
 
     st.markdown(
         """
@@ -1151,7 +1151,7 @@ def _render_comparison(scatter_cache: dict, all_scores: dict) -> None:
         title_text=f"LDA ({n_lda:,} IDs) vs {sel} ({n_sel:,} IDs) @ 1% FDR",
         legend=dict(title="Label", orientation="h", y=1.03),
     )
-    st.plotly_chart(fig5, use_container_width=True)
+    st.plotly_chart(follow_app_theme(fig5), use_container_width=True)
 
     r, p_corr = scipy.stats.pearsonr(all_scores["LDA"], all_scores[sel])
     st.metric(f"Pearson r (LDA vs {sel})", f"{r:.4f}", help=f"p = {p_corr:.2e}")

@@ -18,7 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 from src.common.standalone_report import (
     ReportFigure,
     ReportSection,
@@ -442,6 +442,7 @@ def _score_histogram_figure(score_df: pd.DataFrame) -> tuple[go.Figure, float | 
             xanchor="left",
             yanchor="bottom",
             bgcolor="rgba(255,255,255,0.9)",
+            font=dict(color="#0F172A"),
             bordercolor="#CBD5E1",
             borderwidth=1,
         )
@@ -650,6 +651,7 @@ def _gcv_distribution_figure(cv_df: pd.DataFrame, entity_label: str, color: str,
             xanchor="left",
             yanchor="bottom",
             bgcolor="rgba(255,255,255,0.9)",
+            font=dict(color="#0F172A"),
             bordercolor="#CBD5E1",
             borderwidth=1,
         )
@@ -872,7 +874,7 @@ if selected_osw:
             "n/a" if cutoff_score is None else f"{cutoff_score:.3f}",
             None if cutoff_qvalue is None else f"q={cutoff_qvalue:.4f}",
         )
-        st.plotly_chart(cutoff_fig, use_container_width=True)
+        st.plotly_chart(follow_app_theme(cutoff_fig), use_container_width=True)
 
         qc_metrics_df = pd.DataFrame(
             [
@@ -976,12 +978,10 @@ elif tab_specs:
                     title="Jaccard similarity of precursor IDs across runs",
                 )
                 plot_col_a, plot_col_b = st.columns(2)
-                plot_col_a.plotly_chart(
-                    union_fig,
+                plot_col_a.plotly_chart(follow_app_theme(union_fig),
                     use_container_width=True,
                 )
-                plot_col_b.plotly_chart(
-                    jaccard_fig,
+                plot_col_b.plotly_chart(follow_app_theme(jaccard_fig),
                     use_container_width=True,
                 )
                 st.caption(
@@ -1085,12 +1085,10 @@ elif tab_specs:
                 title=f"Jaccard similarity of {entity_label} across runs",
             )
             plot_col_a, plot_col_b = st.columns(2)
-            plot_col_a.plotly_chart(
-                union_fig,
+            plot_col_a.plotly_chart(follow_app_theme(union_fig),
                 use_container_width=True,
             )
-            plot_col_b.plotly_chart(
-                jaccard_fig,
+            plot_col_b.plotly_chart(follow_app_theme(jaccard_fig),
                 use_container_width=True,
             )
 
@@ -1105,8 +1103,7 @@ elif tab_specs:
                     color=color,
                     title=f"log2 intensity distribution for {entity_label}",
                 )
-                quant_col_a.plotly_chart(
-                    violin_fig,
+                quant_col_a.plotly_chart(follow_app_theme(violin_fig),
                     use_container_width=True,
                 )
 
@@ -1120,8 +1117,7 @@ elif tab_specs:
                     color=color,
                     title=f"Geometric CV distribution for {entity_label}",
                 )
-                quant_col_b.plotly_chart(
-                    gcv_fig,
+                quant_col_b.plotly_chart(follow_app_theme(gcv_fig),
                     use_container_width=True,
                 )
 
@@ -1226,12 +1222,10 @@ else:
             title="Jaccard similarity of precursor IDs across runs",
         )
         plot_col_a, plot_col_b = st.columns(2)
-        plot_col_a.plotly_chart(
-            union_fig,
+        plot_col_a.plotly_chart(follow_app_theme(union_fig),
             use_container_width=True,
         )
-        plot_col_b.plotly_chart(
-            jaccard_fig,
+        plot_col_b.plotly_chart(follow_app_theme(jaccard_fig),
             use_container_width=True,
         )
 

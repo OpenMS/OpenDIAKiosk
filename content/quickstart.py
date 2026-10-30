@@ -74,8 +74,8 @@ def render_windows_download_box(app_bytes: bytes) -> None:
         f"""
         <style>
         .st-key-{container_key} {{
-            background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f4 100%) !important;
-            border: 1px solid #e0e0e0 !important;
+            background: rgba(128, 128, 128, 0.08) !important;
+            border: 1px solid rgba(128, 128, 128, 0.3) !important;
             border-radius: 8px !important;
             padding: 1.5rem !important;
             margin: 1rem 0 !important;
