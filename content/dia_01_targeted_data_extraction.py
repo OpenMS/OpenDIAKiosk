@@ -14,7 +14,7 @@ from plotly.subplots import make_subplots
 import scipy
 from scipy.spatial import cKDTree
 
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 from utils.dia_tutorial import (
     mz_extraction_windows,
     filter_spectrum,
@@ -246,7 +246,7 @@ print(exp_df['ms_level'].drop_duplicates())
     fig_all.update_yaxes(title_text="m/z", row=1, col=1)
     fig_all.update_xaxes(title_text="Retention Time (s)", row=1, col=2)
     fig_all.update_yaxes(title_text="m/z", row=1, col=2)
-    st.plotly_chart(fig_all, use_container_width=True)
+    st.plotly_chart(follow_app_theme(fig_all), use_container_width=True)
 
     st.markdown(
         ":blue[**Note:** the peakmaps are z-log scaled and binned for easier and quicker visualization.]"
@@ -531,7 +531,7 @@ exp_df_targeted = annotate_filtered_spectra(
             progress.progress(100)
             st.session_state["targeted_fig_3d"] = fig_3d
 
-    st.plotly_chart(st.session_state["targeted_fig_3d"], use_container_width=True)
+    st.plotly_chart(follow_app_theme(st.session_state["targeted_fig_3d"]), use_container_width=True)
     st.markdown(
         "We can look at the peakmaps in 3D to visually see topological features more easily. "
         "The raw spectra show how small the targeted signals are relative to the rest of the data. "
@@ -623,7 +623,7 @@ fig_3d.update_layout(scene=dict(domain=dict(x=[0.03,0.48])), scene2=dict(domain=
     chrom_subfig.update_layout(
         width=1200, height=500, margin=dict(l=20, r=20, t=60, b=20)
     )
-    st.plotly_chart(chrom_subfig, use_container_width=True)
+    st.plotly_chart(follow_app_theme(chrom_subfig), use_container_width=True)
     st.markdown(
         "The raw chromatogram shows the original signal. The smoothed chromatogram applies "
         "a Savitzky-Golay filter to reduce noise, making downstream peak-picking more stable."
@@ -771,7 +771,7 @@ def _stage3():
             progress.progress(100)
             st.session_state["ion_3d_fig"] = fig
 
-    st.plotly_chart(st.session_state["ion_3d_fig"], use_container_width=True)
+    st.plotly_chart(follow_app_theme(st.session_state["ion_3d_fig"]), use_container_width=True)
     st.markdown(
         "Looking at the spectra in 3D with the ion mobility dimension, we can see just how much "
         "more complicated the data looks like — it just looks like blobs of colour."
@@ -961,7 +961,7 @@ def _stage4():
             margin=dict(l=0, r=0, t=50, b=0),
         )
         progress.progress(100)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(follow_app_theme(fig), use_container_width=True)
     st.markdown(
         "From the filtered spectra, we get a much clearer picture of the spectral features "
         "corresponding to our target peptide, distributed in the ion mobility dimension."
@@ -1086,7 +1086,7 @@ exp_df_targeted_with_im = annotate_filtered_spectra(...)""",
             chrom_subfig.add_trace(t_raw, row=2, col=1)
             chrom_subfig.add_trace(t_smooth, row=2, col=2)
     chrom_subfig.update_layout(width=1200, height=800)
-    st.plotly_chart(chrom_subfig, use_container_width=True)
+    st.plotly_chart(follow_app_theme(chrom_subfig), use_container_width=True)
     st.markdown(
         "The IM-filtered chromatograms (bottom row) show cleaner and more distinct elution "
         "peaks. Ion mobility filtering helps separate overlapping peptide signals."
@@ -1155,7 +1155,7 @@ chrom_subfig.update_layout(width=1200, height=800)""",
             mobi_subfig.add_trace(t_raw, row=1, col=1)
             mobi_subfig.add_trace(t_smooth, row=1, col=2)
     mobi_subfig.update_layout(width=1200, height=800)
-    st.plotly_chart(mobi_subfig, use_container_width=True)
+    st.plotly_chart(follow_app_theme(mobi_subfig), use_container_width=True)
     st.markdown(
         "The mobilogram shows the intensity of the ions over the ion mobility dimension. "
         "The smoothed mobilogram reduces noise and makes it easier to see the ion mobility "

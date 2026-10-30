@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from scipy.signal import savgol_filter
 
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 from src.osw_utils import OSWFile
 
 # -- pyopenms version guard ----------------------------------------------------
@@ -1049,7 +1049,7 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
                                     boundary_table = _format_feature_table(boundaries_df)
 
                         result.update_layout(height=plot_height)
-                        st.plotly_chart(result, use_container_width=True)
+                        st.plotly_chart(follow_app_theme(result), use_container_width=True)
 
                         xic_run_id_caption = xic_meta.get("run_id")
                         if xic_run_id_caption is not None or mapped_run_id is not None:

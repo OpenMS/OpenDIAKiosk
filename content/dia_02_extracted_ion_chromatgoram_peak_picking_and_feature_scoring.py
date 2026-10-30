@@ -11,7 +11,7 @@ import pyopenms as poms
 import pyopenms_viz  # noqa: F401  # registers plotting backends for pandas
 
 import streamlit as st
-from src.common.common import page_setup
+from src.common.common import page_setup, follow_app_theme
 from utils.dia_tutorial import (
     reduce_spectra,
     annotate_filtered_spectra,
@@ -178,7 +178,7 @@ if load_clicked or st.session_state.data_loaded:
         )
 
         progress.progress(100)
-        st.plotly_chart(smoothed_chrom_fig, use_container_width=True)
+        st.plotly_chart(follow_app_theme(smoothed_chrom_fig), use_container_width=True)
 
     st.markdown("""
                 From the previous section, we learned how to perform targeted data extraction to filter the spectra in our DIA dataset to only those relevant to our peptide of interest (NTGIIC(UniMod:4)TIGPASR) and its corresponding transitions, and we saw how we can visualize the extracted ion chromatograms (XICs) for each transition. However, we have not yet performed any peak picking or feature scoring on these XICs, which are critical steps for determining the quality of our detected features and for downstream quantification and statistical analysis.
@@ -439,7 +439,7 @@ if (
                 height=100 * len(annotations), title_text="XICs per Transition"
             )
             progress_pp.progress(100)
-            st.plotly_chart(fig_sub, use_container_width=True)
+            st.plotly_chart(follow_app_theme(fig_sub), use_container_width=True)
 
             if smoothing_method in ["Gaussian"]:
                 st.markdown(
@@ -529,7 +529,7 @@ if (
             if st.session_state.consensus_df is not None and hasattr(
                 st.session_state, "xic_plot"
             ):
-                st.plotly_chart(st.session_state.xic_plot, use_container_width=True)
+                st.plotly_chart(follow_app_theme(st.session_state.xic_plot), use_container_width=True)
 
                 st.markdown("""
                 In the plot above, we show the smoothed XICs for each transition with the consensus peak boundaries plotted as vertical solid lines. 
@@ -878,8 +878,7 @@ if (
 
             # Display combined consensus plot (persist even after rerun)
             if hasattr(st.session_state, "combined_concensus_plot"):
-                st.plotly_chart(
-                    st.session_state.combined_concensus_plot, use_container_width=True
+                st.plotly_chart(follow_app_theme(st.session_state.combined_concensus_plot), use_container_width=True
                 )
 
                 st.markdown("""
@@ -1124,7 +1123,7 @@ if (
                                 height=400,
                                 title="Pairwise Cross-Correlation (max values, higher = better coelution)",
                             )
-                            st.plotly_chart(fig_xcorr, use_container_width=True)
+                            st.plotly_chart(follow_app_theme(fig_xcorr), use_container_width=True)
 
                             # Lag-at-maximum heatmap (shows coelution visually)
                             st.write("**Coelution (Lag-at-Maximum):**")
@@ -1148,7 +1147,7 @@ if (
                                 height=400,
                                 title="Absolute Lag at Maximum (lower = better coelution)",
                             )
-                            st.plotly_chart(fig_lag, use_container_width=True)
+                            st.plotly_chart(follow_app_theme(fig_lag), use_container_width=True)
 
                             # Per-transition S/N bar chart
                             st.write("**Per-Transition Signal-to-Noise Scores:**")
@@ -1188,7 +1187,7 @@ if (
                                 yaxis_title="Log(S/N)",
                                 showlegend=False,
                             )
-                            st.plotly_chart(fig_sn, use_container_width=True)
+                            st.plotly_chart(follow_app_theme(fig_sn), use_container_width=True)
 
                             # Heatmap of MI matrix
                             st.write("**Mutual Information Matrix:**")
@@ -1211,7 +1210,7 @@ if (
                                 height=400,
                                 title="Pairwise Mutual Information (higher = more information dependency)",
                             )
-                            st.plotly_chart(fig_mi, use_container_width=True)
+                            st.plotly_chart(follow_app_theme(fig_mi), use_container_width=True)
 
                             # Traces visualization
                             st.write("**Standardized Traces in Peak Window:**")
@@ -1235,7 +1234,7 @@ if (
                                 xaxis_title="Sample Point",
                                 yaxis_title="Standardized Intensity",
                             )
-                            st.plotly_chart(fig_traces, use_container_width=True)
+                            st.plotly_chart(follow_app_theme(fig_traces), use_container_width=True)
 
                     # Summary table
                     st.markdown("#### Detailed Score Table")
