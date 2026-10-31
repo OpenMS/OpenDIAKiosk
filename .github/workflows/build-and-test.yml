@@ -370,7 +370,7 @@ jobs:
           # Filter out Traefik IngressRoute (kind cluster uses nginx) and force imagePullPolicy=Never
           kubectl kustomize k8s/overlays/prod/ | \
             yq 'select(.kind != "IngressRoute")' | \
-            sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' | \
+            sed -E 's|imagePullPolicy: (IfNotPresent\|Always)|imagePullPolicy: Never|g' | \
             sed -E 's|image: ghcr.io/openms/opendiakiosk:[^ "]+|image: openms-streamlit:test|g' | \
             sed 's|storageClassName: cinder-csi|storageClassName: standard|g' > /tmp/manifests.yaml
           for i in 1 2 3 4 5; do
@@ -463,7 +463,7 @@ jobs:
       - name: Deploy with Kustomize (full manifests, no filter)
         run: |
           kubectl kustomize k8s/overlays/prod/ | \
-            sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' | \
+            sed -E 's|imagePullPolicy: (IfNotPresent\|Always)|imagePullPolicy: Never|g' | \
             sed -E 's|image: ghcr.io/openms/opendiakiosk:[^ "]+|image: openms-streamlit:test|g' | \
             sed 's|storageClassName: cinder-csi|storageClassName: standard|g' > /tmp/manifests.yaml
           for i in 1 2 3 4 5; do
