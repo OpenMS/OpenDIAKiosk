@@ -11,7 +11,7 @@ import streamlit as st
 
 from src.common.common import page_setup
 
-WINDOWS_APP_PATH = Path("/app/OpenDIAKiosk.zip")
+WINDOWS_APP_PATH = Path("/app/OpenMS-App-Setup.exe")
 
 
 @st.cache_resource
@@ -52,8 +52,8 @@ def render_windows_download_box(app_bytes: bytes) -> None:
             st.download_button(
                 label="📥 Download for Windows",
                 data=app_bytes,
-                file_name="OpenDIAKiosk.zip",
-                mime="application/zip",
+                file_name="OpenDIAKiosk-Setup.exe",
+                mime="application/vnd.microsoft.portable-executable",
                 type="secondary",
                 use_container_width=True,
                 help="Download OpenDIAKiosk for Windows systems",
@@ -62,8 +62,8 @@ def render_windows_download_box(app_bytes: bytes) -> None:
         st.markdown(
             """
             <div style="text-align: center; margin-top: 1rem; color: #6c757d;">
-                Extract the zip file and run the installer (.msi) to install the app.
-                Launch using the desktop icon after installation.<br>
+                Run the installer to install the app for your user; no admin rights are needed.
+                Launch it from the desktop icon or the start menu after installation.<br>
                 Even offline, it's still a web app - just packaged so you can use it without an internet connection.
             </div>
             """,

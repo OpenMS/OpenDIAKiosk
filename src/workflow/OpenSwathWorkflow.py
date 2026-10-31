@@ -24,6 +24,12 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.common.common import (
+    TK_AVAILABLE,
+    export_files,
+    export_folder_input,
+    tk_file_dialog,
+)
 from src.common.workspace_files import (
     LIBRARY_EXTENSIONS,
     archive_needs_refresh,
@@ -222,6 +228,37 @@ class OpenSwathWorkflow(WorkflowManager):
             form_key="imported_osdg_output_upload",
         )
 
+    @staticmethod
+    def _pick_local_file(
+        label: str, file_types: list[str], key: str, button_label: str
+    ) -> Path | None:
+        """
+        Local installs pick a file on disk instead of uploading it through the
+        browser. Returns the chosen path once the button is pressed.
+        """
+        path_key = f"{key}_local_path"
+        c1, c2 = st.columns([0.05, 0.95], gap="small")
+        with c1:
+            st.write("\n")
+            st.write("\n")
+            if st.button("📁", key=f"{key}_browse", help=f"Choose the {label} file.", disabled=not TK_AVAILABLE):
+                chosen = tk_file_dialog(
+                    f"Select the {label} file",
+                    [(label, " ".join(f"*.{t}" for t in file_types))],
+                    st.session_state.get("previous_dir", str(Path.home())),
+                )
+                if chosen:
+                    st.session_state[path_key] = chosen[0]
+        with c2:
+            path = st.text_input("Path to the file", key=path_key)
+        if st.button(button_label, type="primary", key=f"{key}_copy", disabled=not path):
+            source = Path(path).expanduser()
+            if not source.is_file():
+                st.error(f"File not found: `{source}`")
+                return None
+            return source
+        return None
+
     def _render_imported_uploader(
         self,
         label: str,
@@ -230,22 +267,29 @@ class OpenSwathWorkflow(WorkflowManager):
         form_key: str,
     ) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)
-        with st.form(form_key, clear_on_submit=True):
+        if st.session_state.get("location") == "local":
             st.markdown(f"**{label}**")
-            uploaded = st.file_uploader(
-                label,
-                type=file_types,
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                key=f"{form_key}_file",
-            )
-            submitted = st.form_submit_button(f"Save {label}", type="primary")
-            if submitted:
-                if uploaded is None:
-                    st.warning("Select a file first.")
-                else:
-                    saved = save_uploaded_file(uploaded, target_dir)
-                    st.success(f"Saved to `{saved}`")
+            source = self._pick_local_file(label, file_types, form_key, f"Copy {label}")
+            if source is not None:
+                shutil.copy2(source, target_dir / source.name)
+                st.success(f"Saved to `{target_dir / source.name}`")
+        else:
+            with st.form(form_key, clear_on_submit=True):
+                st.markdown(f"**{label}**")
+                uploaded = st.file_uploader(
+                    label,
+                    type=file_types,
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                    key=f"{form_key}_file",
+                )
+                submitted = st.form_submit_button(f"Save {label}", type="primary")
+                if submitted:
+                    if uploaded is None:
+                        st.warning("Select a file first.")
+                    else:
+                        saved = save_uploaded_file(uploaded, target_dir)
+                        st.success(f"Saved to `{saved}`")
 
         existing = sorted(p.name for p in target_dir.iterdir() if p.is_file())
         if existing:
@@ -259,23 +303,32 @@ class OpenSwathWorkflow(WorkflowManager):
         form_key: str,
     ) -> None:
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        with st.form(form_key, clear_on_submit=True):
+        if st.session_state.get("location") == "local":
             st.markdown(f"**{label}** → `{target_path.name}`")
-            uploaded = st.file_uploader(
-                label,
-                type=file_types,
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                key=f"{form_key}_file",
+            source = self._pick_local_file(
+                label, file_types, form_key, f"Copy as {target_path.name}"
             )
-            submitted = st.form_submit_button(f"Save as {target_path.name}", type="primary")
-            if submitted:
-                if uploaded is None:
-                    st.warning("Select a file first.")
-                else:
-                    with open(target_path, "wb") as fh:
-                        fh.write(uploaded.getbuffer())
-                    st.success(f"Saved to `{target_path}`")
+            if source is not None:
+                shutil.copy2(source, target_path)
+                st.success(f"Saved to `{target_path}`")
+        else:
+            with st.form(form_key, clear_on_submit=True):
+                st.markdown(f"**{label}** → `{target_path.name}`")
+                uploaded = st.file_uploader(
+                    label,
+                    type=file_types,
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                    key=f"{form_key}_file",
+                )
+                submitted = st.form_submit_button(f"Save as {target_path.name}", type="primary")
+                if submitted:
+                    if uploaded is None:
+                        st.warning("Select a file first.")
+                    else:
+                        with open(target_path, "wb") as fh:
+                            fh.write(uploaded.getbuffer())
+                        st.success(f"Saved to `{target_path}`")
 
         if target_path.exists():
             st.caption(f"Currently saved: `{target_path}`")
@@ -1201,8 +1254,10 @@ class OpenSwathWorkflow(WorkflowManager):
         return available_bundles
 
     def _render_result_bundle(
-        self, results_dir: Path, bundle: dict[str, object]
+        self, results_dir: Path, bundle: dict[str, object], export_dir: Path | None = None
     ) -> None:
+        """Show one bundle; with ``export_dir`` (local installs) it is exported
+        to ``<export_dir>/<archive name>`` instead of offered as a ZIP."""
         files: list[Path] = bundle["files"]
         bundle_id = str(bundle["id"])
         archive_dir = results_dir / "download-archives"
@@ -1221,7 +1276,18 @@ class OpenSwathWorkflow(WorkflowManager):
         )
 
         button_placeholder = col_b.empty()
-        if st.session_state.get(ready_key, False) and archive_path.exists():
+        if export_dir is not None:
+            if button_placeholder.button(
+                "📤 Export", use_container_width=True, key=f"export_bundle::{bundle_id}"
+            ):
+                rel = []
+                for path in files:
+                    try:
+                        rel.append((path, path.relative_to(results_dir)))
+                    except ValueError:
+                        rel.append((path, Path(path.name)))
+                export_files(rel, Path(export_dir, Path(str(bundle["archive_name"])).stem))
+        elif st.session_state.get(ready_key, False) and archive_path.exists():
             with open(archive_path, "rb") as fh:
                 button_placeholder.download_button(
                     "Download ⬇️",
@@ -1260,34 +1326,40 @@ class OpenSwathWorkflow(WorkflowManager):
             st.info("No output files yet — run the workflow above to generate results.")
             return
 
-        st.caption(
-            "Archives are prepared on demand from disk so large result sets are not "
-            "loaded into memory during page render."
-        )
+        # A local install exports each bundle to a folder instead of downloading it.
+        export_dir = None
+        if st.session_state.get("location") == "local":
+            export_dir = export_folder_input("openswath-results")
+        else:
+            st.caption(
+                "Archives are prepared on demand from disk so large result sets are not "
+                "loaded into memory during page render."
+            )
+        noun = "Exports" if export_dir is not None else "Downloads"
 
         primary_bundles = [bundle for bundle in bundles if not bundle["advanced"]]
         advanced_bundles = [bundle for bundle in bundles if bundle["advanced"]]
 
         if primary_bundles:
-            st.markdown("**Primary Downloads**")
+            st.markdown(f"**Primary {noun}**")
             for bundle in primary_bundles:
-                self._render_result_bundle(results_dir, bundle)
+                self._render_result_bundle(results_dir, bundle, export_dir)
 
         if advanced_bundles:
             state_key = f"{self.workflow_dir.resolve()}::show_advanced_downloads"
             show_advanced = bool(st.session_state.get(state_key, False))
             toggle_label = (
-                "Hide Advanced Downloads" if show_advanced else "Show Advanced Downloads"
+                f"Hide Advanced {noun}" if show_advanced else f"Show Advanced {noun}"
             )
             if st.button(toggle_label, key=f"{state_key}::toggle"):
                 st.session_state[state_key] = not show_advanced
                 st.rerun()
 
             if show_advanced:
-                st.markdown("**Advanced Downloads**")
+                st.markdown(f"**Advanced {noun}**")
                 st.caption(
                     "Developer-oriented artifacts: the `.osw` feature database, "
                     "chromatograms, mobilograms, and calibration/debug outputs."
                 )
                 for bundle in advanced_bundles:
-                    self._render_result_bundle(results_dir, bundle)
+                    self._render_result_bundle(results_dir, bundle, export_dir)
