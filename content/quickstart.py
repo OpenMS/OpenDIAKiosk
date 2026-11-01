@@ -2,28 +2,21 @@
 OpenDIAKiosk Quickstart Page.
 
 Landing page that briefly introduces OpenDIAKiosk and offers a styled
-Windows download card when the packaged executable is available.
+download card for the desktop app (Windows, macOS, Linux) when the latest
+release has installers.
 """
-
-from pathlib import Path
 
 import streamlit as st
 
 from src.common.common import page_setup
-
-WINDOWS_APP_PATH = Path("/app/OpenMS-App-Setup.exe")
-
-
-@st.cache_resource
-def load_windows_app_bytes() -> bytes | None:
-    if WINDOWS_APP_PATH.exists():
-        return WINDOWS_APP_PATH.read_bytes()
-    return None
+from src.common.installers import installers_available, render_installer_buttons
 
 
-def render_windows_download_box(app_bytes: bytes) -> None:
-    """Render a styled offline-download card for the Windows app."""
-    container_key = "windows_download_container"
+def render_desktop_download_box() -> None:
+    """Render the offline-download card: one button per platform with an installer."""
+    if not installers_available():
+        return
+    container_key = "desktop_download_container"
 
     st.markdown(
         """
@@ -38,32 +31,20 @@ def render_windows_download_box(app_bytes: bytes) -> None:
         st.markdown(
             """
             <h4 style="color: #6c757d; margin-bottom: 0.75rem; font-size: 1.1rem; font-weight: 600;">
-                OpenDIAKiosk for Windows
+                OpenDIAKiosk desktop app
             </h4>
             <p style="color: #6c757d; margin-bottom: 1rem;">
-                You can download an offline version for Windows systems below.
+                Download the offline version for Windows, macOS or Linux below.
             </p>
             """,
             unsafe_allow_html=True,
         )
 
-        cols = st.columns([2, 3, 2])
-        with cols[1]:
-            st.download_button(
-                label="📥 Download for Windows",
-                data=app_bytes,
-                file_name="OpenDIAKiosk-Setup.exe",
-                mime="application/vnd.microsoft.portable-executable",
-                type="secondary",
-                use_container_width=True,
-                help="Download OpenDIAKiosk for Windows systems",
-            )
+        render_installer_buttons(app_name="OpenDIAKiosk")
 
         st.markdown(
             """
             <div style="text-align: center; margin-top: 1rem; color: #6c757d;">
-                Run the installer to install the app for your user; no admin rights are needed.
-                Launch it from the desktop icon or the start menu after installation.<br>
                 Even offline, it's still a web app - just packaged so you can use it without an internet connection.
             </div>
             """,
@@ -96,9 +77,7 @@ page_setup(page="main")
 
 st.markdown("# OpenDIAKiosk")
 
-windows_app_bytes = load_windows_app_bytes()
-if windows_app_bytes is not None:
-    render_windows_download_box(windows_app_bytes)
+render_desktop_download_box()
 
 st.markdown(
     """
