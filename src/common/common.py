@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 # Detect system platform
 OS_PLATFORM = sys.platform
 
+# Demo and example files are symlinked on Linux to save space. An AppImage
+# mounts the app under a new path on every launch, so links into it would
+# dangle after a restart; it copies them instead.
+LINK_EXAMPLE_FILES = OS_PLATFORM == "linux" and "APPIMAGE" not in os.environ
+
 # Default legal/GDPR page links. These point to the centrally maintained
 # official OpenMS pages. Forks that self-host should override them via the
 # "legal_links" key in settings.json (an Impressum must name the actual
@@ -226,8 +231,8 @@ def copy_demo_workspace(demo_name: str, target_path: Path) -> bool:
         if target_path.exists():
             shutil.rmtree(target_path)
 
-        # Use symlinks on Linux for efficiency
-        if OS_PLATFORM == "linux":
+        # Use symlinks on Linux for efficiency (not in an AppImage)
+        if LINK_EXAMPLE_FILES:
             _symlink_tree(demo_path, target_path)
         else:
             shutil.copytree(demo_path, target_path)
@@ -842,8 +847,8 @@ def render_sidebar(page: str = "") -> None:
                                     if item.is_dir():
                                         if target.exists():
                                             shutil.rmtree(target)
-                                        # Use symlinks on Linux for efficiency
-                                        if OS_PLATFORM == "linux":
+                                        # Use symlinks on Linux for efficiency (not in an AppImage)
+                                        if LINK_EXAMPLE_FILES:
                                             _symlink_tree(item, target)
                                         else:
                                             shutil.copytree(item, target)
@@ -852,7 +857,7 @@ def render_sidebar(page: str = "") -> None:
                                             target.unlink()
                                         # Copy config files so they can be modified independently
                                         if (
-                                            OS_PLATFORM == "linux"
+                                            LINK_EXAMPLE_FILES
                                             and item.name != "params.json"
                                             and item.suffix != ".ini"
                                         ):
@@ -1282,6 +1287,72 @@ def tk_file_dialog(
     )
     root.destroy()
     return file_path
+
+
+def export_folder_input(key: str) -> Path:
+    """
+    Show the folder that local exports are written to, with a browse button.
+
+    The folder is kept in ``st.session_state["export_dir"]``, so every export
+    page starts from the last folder chosen. It defaults to
+    ``~/Documents/<app-name>`` and is created on the first export.
+
+    Args:
+        key (str): Prefix for the widget keys, unique on the page.
+
+    Returns:
+        Path: The chosen folder (not checked for existence).
+    """
+    if "export_dir" not in st.session_state:
+        st.session_state["export_dir"] = str(
+            Path.home() / "Documents" / st.session_state.settings["app-name"]
+        )
+    widget_key = f"{key}-export-dir"
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = st.session_state["export_dir"]
+    c1, c2 = st.columns([0.05, 0.95], gap="small")
+    with c1:
+        st.write("\n")
+        st.write("\n")
+        if st.button(
+            "📁",
+            key=f"{key}-export-browse",
+            help="Choose the export folder.",
+            disabled=not TK_AVAILABLE,
+        ):
+            chosen = tk_directory_dialog(
+                "Select the export folder", st.session_state["export_dir"]
+            )
+            if chosen:
+                st.session_state[widget_key] = chosen
+    with c2:
+        folder = st.text_input("Export folder", key=widget_key)
+    st.session_state["export_dir"] = folder
+    return Path(folder).expanduser()
+
+
+def export_files(files: list[tuple[Path, Path]], target: Path) -> bool:
+    """
+    Copy files into an export folder, keeping their relative paths.
+
+    Args:
+        files (list[tuple[Path, Path]]): Pairs of (source file, path relative to ``target``).
+        target (Path): Folder to write into; created if missing.
+
+    Returns:
+        bool: True if every file was copied, otherwise False (with an error shown).
+    """
+    try:
+        with st.spinner(f"Exporting {len(files)} files..."):
+            for source, rel in files:
+                dest = Path(target, rel)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, dest)
+    except OSError as e:
+        st.error(f"Export failed: {e}")
+        return False
+    st.success(f"Exported {len(files)} files to **{target}**.")
+    return True
 
 
 # General warning/error messages

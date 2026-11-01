@@ -3,7 +3,7 @@
 // TOPP tools) when the window closes.
 const fs = require("fs");
 const path = require("path");
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
 const payload = require("./payload");
 const { checkForUpdate } = require("./update-check");
 
@@ -12,6 +12,12 @@ const SMOKE_TEST = process.env.OPENMS_APP_SMOKE_TEST === "1";
 
 let server = null;
 let mainWindow = null;
+
+// WebGL plots (3D views, large scatter plots) need a GPU. Without a usable one
+// (remote desktop, virtual machines, blocklisted drivers) Chromium no longer
+// falls back to its software renderer on its own; allow it, since the window
+// only ever shows the app's own local server.
+app.commandLine.appendSwitch("enable-unsafe-swiftshader");
 
 if (!app.requestSingleInstanceLock()) {
   // A second launch would share the same workspaces; focus the first instead.
@@ -47,10 +53,16 @@ async function start() {
     width: 1400,
     height: 900,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "..", "build", "icon.ico"),
+    icon: path.join(__dirname, "..", "build", process.platform === "win32" ? "icon.ico" : "icon.png"),
     webPreferences: { contextIsolation: true, sandbox: true },
   });
   mainWindow.on("page-title-updated", (e) => e.preventDefault());
+  // Without an application menu macOS has no Edit menu, so Cmd+C/V/A/Q do nothing.
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }])
+    );
+  }
   await mainWindow.loadURL(LOADING_PAGE);
 
   try {
@@ -72,7 +84,7 @@ async function start() {
     return;
   }
 
-  if (!SMOKE_TEST) notifyAboutUpdate(settings);
+  if (!SMOKE_TEST && process.env.OPENMS_APP_NO_UPDATE_CHECK !== "1") notifyAboutUpdate(settings);
 }
 
 // The page has rendered once page_setup() created the default workspace in
