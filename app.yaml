@@ -1,0 +1,127 @@
+# App spec: what this app is. Schema and checker come from the template
+# (utils/app_spec.schema.json, `python -m utils.app_spec`); the weekly
+# template-sync job reads `template:` and `sync.app_owned` from here.
+# App-owned: template syncs never overwrite this file.
+spec_version: 1
+template:
+  repository: OpenMS/streamlit-template
+  branch: main
+app:
+  slug: opendiakiosk
+  name: OpenDIAKiosk
+  description: 'DIA proteomics with OpenSwath: spectral library generation, targeted extraction, PyProphet
+    scoring, and teaching pages on DIA concepts.'
+  repository: OpenMS/OpenDIAKiosk
+  domain: dia-proteomics
+  image: ghcr.io/openms/opendiakiosk
+inputs:
+  mzML-files:
+    types:
+    - mzML
+    - mzML.gz
+    multiple: true
+    description: DIA runs.
+  fasta:
+    types:
+    - fasta
+    - fa
+    - faa
+    multiple: true
+    description: Protein database for the predicted library.
+  libraries:
+    types:
+    - tsv
+    - traML
+    - pqp
+    multiple: true
+    description: Spectral libraries.
+  xic-files:
+    types:
+    - xic
+    - parquet
+    multiple: true
+    description: Extracted chromatograms from an earlier run.
+workflows:
+- name: OpenSwath Workflow
+  class: src/workflow/OpenSwathWorkflow.py:OpenSwathWorkflow
+  inputs:
+  - mzML-files
+  - fasta
+  - libraries
+  - xic-files
+  steps:
+  - external: easypqp
+    in: fasta
+    optional: true
+    note: in-silico library
+  - tool: OpenSwathAssayGenerator
+    in: libraries
+  - tool: OpenSwathDecoyGenerator
+    in: OpenSwathAssayGenerator
+  - tool: OpenSwathWorkflow
+    in: mzML-files
+  - external: pyprophet
+    in: OpenSwathWorkflow
+    note: scoring and FDR
+results:
+- role: table
+  title: Results viewer
+  page: content/openswath_results_viewer.py
+- role: chromatogram
+  title: XIC chromatogram viewer
+  page: content/xic_chromatogram_viewer.py
+- role: custom
+  title: Results comparison
+  page: content/openswath_results_comparison.py
+pages:
+- content/quickstart.py
+- content/dia_00_concepts.py
+- content/dia_01_targeted_data_extraction.py
+- content/dia_03_feature_scoring.py
+- content/dia_04_statistical_validation.py
+- content/fasta_database.py
+- content/insilico_spectral_library_generation.py
+- content/openswathassay_generation.py
+- content/openswathdecoy_generation.py
+- content/openswath_file_upload.py
+- content/openswath_configuration.py
+- content/openswath_workflow.py
+- content/openswath_results_viewer.py
+- content/xic_chromatogram_viewer.py
+- content/openswath_results_comparison.py
+- content/log_viewer.py
+- content/workspace_viewer.py
+deploy:
+  k8s:
+    enabled: true
+    hosts:
+    - opendia.webapps.openms.de
+    - opendia.webapps.openms.org
+    worker_tier: high
+  docker_compose: true
+  desktop:
+  - windows
+  online_deployment: false
+sync:
+  app_owned:
+  - app.yaml
+  - app.py
+  - settings.json
+  - default-parameters.json
+  - presets.json
+  - README.md
+  - content/*
+  - src/python-tools/*
+  - example-data/*
+  - assets/*
+  - k8s/overlays/*
+  - src/Workflow.py
+  - src/common/standalone_report.py
+  - src/common/workspace_files.py
+  - src/osw_utils.py
+  - src/workflow/EasyPQPWorkflow.py
+  - src/workflow/OpenSwathAssayGeneratorWorkflow.py
+  - src/workflow/OpenSwathDecoyGeneratorWorkflow.py
+  - src/workflow/OpenSwathWorkflow.py
+  - src/workflow/PyProphet.py
+  - src/workflow/UniProtFastaManager.py
