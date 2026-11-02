@@ -1,5 +1,6 @@
 import streamlit as st
 from src.common.common import page_setup
+from src.common.installers import render_installer_buttons
 from pathlib import Path
 from docs.toppframework import content as topp_framework_content
 
@@ -44,20 +45,7 @@ if page == pages[0]:
 #############################################################################################
 
 if page == pages[1]:
-    if Path("OpenMS-App.zip").exists():
-        st.markdown(
-            """
-Download the latest version for **Windows** here clicking the button below.
-"""
-        )
-        with open("OpenMS-App.zip", "rb") as file:
-            st.download_button(
-                label="Download for Windows",
-                data=file,
-                file_name="OpenMS-App.zip",
-                mime="archive/zip",
-                type="primary",
-            )
+    render_installer_buttons("Download the latest version of the desktop app:")
     with open(Path("docs", "installation.md"), "r", encoding="utf-8") as f:
         content = f.read()
     st.markdown(content) 
@@ -87,7 +75,7 @@ if page == pages[4]:
         """
 ## 💻  How to package everything for Windows executables
 
-This guide explains how to package OpenMS apps into Windows executables using two different methods:
+This guide explains how to package OpenMS apps for Windows. The embeddable Python route is the one CI uses to build the installer; PyInstaller is an older alternative.
 """
     )
 
