@@ -2,6 +2,10 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: workspaces-pvc
+  annotations:
+    # Argo CD: never prune or cascade-delete. On cinder-csi, deleting the claim
+    # deletes the volume.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes:
     - ReadWriteOnce
