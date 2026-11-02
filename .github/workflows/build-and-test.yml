@@ -92,15 +92,26 @@ jobs:
           build-args: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
-      - name: Retag for kind (stable local tag)
+      - name: Retag for kind (image ref the prod overlay renders)
         run: |
           # load:true above loaded all meta-action tags into local docker.
-          # Retag the first one to the stable name the kustomize overlay expects.
+          # The rendered manifests reference the prod overlay's newName:newTag
+          # exactly, so the built image is also tagged with that ref; read
+          # from the overlay, because prod pins a release tag that changes.
           FIRST_TAG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
+          overlay=k8s/overlays/prod/kustomization.yaml
+          name=$(awk '$1 == "newName:" {print $2; exit}' "$overlay")
+          tag=$(awk '$1 == "newTag:" {print $2; exit}' "$overlay")
+          if [ -z "$name" ] || [ -z "$tag" ]; then
+            echo "::error::$overlay has no images newName/newTag to tag the kind image with"
+            exit 1
+          fi
           docker tag "$FIRST_TAG" openms-streamlit:test
+          docker tag "$FIRST_TAG" "$name:$tag"
+          echo "KIND_IMAGE=$name:$tag" >> "$GITHUB_ENV"
 
       - name: Save image as tar
-        run: docker save openms-streamlit:test -o /tmp/image.tar
+        run: docker save openms-streamlit:test "$KIND_IMAGE" -o /tmp/image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -358,7 +369,11 @@ jobs:
           config: .github/kind-config.yaml
 
       - name: Load image into kind cluster
-        run: kind load docker-image openms-streamlit:test --name test-cluster
+        run: |
+          overlay=k8s/overlays/prod/kustomization.yaml
+          name=$(awk '$1 == "newName:" {print $2; exit}' "$overlay")
+          tag=$(awk '$1 == "newTag:" {print $2; exit}' "$overlay")
+          kind load docker-image "$name:$tag" --name test-cluster
 
       - name: Install nginx ingress controller
         run: |
@@ -445,7 +460,11 @@ jobs:
           config: .github/kind-config.yaml
 
       - name: Load image into kind cluster
-        run: kind load docker-image openms-streamlit:test --name traefik-test
+        run: |
+          overlay=k8s/overlays/prod/kustomization.yaml
+          name=$(awk '$1 == "newName:" {print $2; exit}' "$overlay")
+          tag=$(awk '$1 == "newTag:" {print $2; exit}' "$overlay")
+          kind load docker-image "$name:$tag" --name traefik-test
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
