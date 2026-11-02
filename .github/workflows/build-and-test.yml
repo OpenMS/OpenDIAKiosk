@@ -14,7 +14,7 @@ env:
 
 jobs:
   lint-manifests:
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +40,7 @@ jobs:
 
   build:
     needs: lint-manifests
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     permissions:
       contents: read
       packages: write
@@ -127,7 +127,7 @@ jobs:
     # exercises that contract by running the built image under apptainer and
     # waiting for the streamlit /_stcore/health endpoint to come up.
     needs: build
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     strategy:
       fail-fast: false
       matrix:
@@ -285,7 +285,7 @@ jobs:
     # on-the-fly OCI->SIF conversion the docker:// path requires.
     needs: test-apptainer
     if: github.event_name != 'pull_request'
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     permissions:
       contents: read
       packages: write
@@ -345,7 +345,7 @@ jobs:
 
   test-nginx:
     needs: build
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     strategy:
       fail-fast: false
       matrix:
@@ -436,7 +436,7 @@ jobs:
 
   test-traefik:
     needs: build
-    runs-on: self-hosted
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     strategy:
       fail-fast: false
       matrix:
