@@ -1346,29 +1346,8 @@ class StreamlitUI:
                 or (not p["advanced"] and not p["non_included"])
             ]
 
-        # Values changed in the "All parameters" dialog, before the widgets are drawn
-        self._apply_all_params_pending(tool_instance_name)
-
-        # Tool name, and the button for the "All parameters" dialog
-        all_rows = self._all_parameter_rows(params, ini_params, tool_instance_name)
-        name_col, all_col = st.columns([3, 2], vertical_alignment="bottom")
         if display_tool_name:
-            name_col.markdown(f"**{tool_instance_name}**")
-        n_changed = sum(not r["is_default"] for r in all_rows)
-        if all_col.button(
-            f"All {len(all_rows)} parameters"
-            + (f" ({n_changed} changed)" if n_changed else ""),
-            key=f"all-params-{tool_instance_name}",
-            icon=":material/tune:",
-            type="tertiary",
-            help="Search every parameter of this tool, including advanced ones, "
-            "and reset single parameters to the default or the applied preset.",
-            use_container_width=True,
-        ):
-            st.session_state["_all_params_filter"] = ""
-            st.dialog(f"All parameters of {tool_instance_name}", width="large")(
-                self._all_parameters_dialog
-            )(topp_tool_name, tool_instance_name, exclude_parameters)
+            st.markdown(f"**{topp_tool_name}**")
 
         tab_names = [k for k in param_sections.keys() if ":" not in k]
         tabs = None
