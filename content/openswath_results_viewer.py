@@ -19,6 +19,15 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.common.common import page_setup, follow_app_theme
+from src.common.insight_tables import show_insight_table
+from src.run_qc import (
+    detections_figure,
+    identified_peaks,
+    per_run_box_figure,
+    rt_calibration_figure,
+    rt_residual_figure,
+    run_summary,
+)
 from src.common.standalone_report import (
     ReportFigure,
     ReportSection,
@@ -124,7 +133,7 @@ def _select_result_file(
 ) -> str | None:
     select_options: list[str | None] = [None] + options
     preferred = str(preferred_path.resolve()) if preferred_path.exists() else None
-    if preferred in select_options:
+    if preferred is not None and preferred in select_options:
         index = select_options.index(preferred)
     elif len(select_options) > 1:
         index = 1
@@ -919,6 +928,98 @@ if selected_osw:
         )
 else:
     st.info("Select an OSW file above to inspect feature score distributions.")
+
+
+@st.cache_data(show_spinner="Reading identified peaks from the OSW file…")
+def _load_identified_peaks(osw_path_str: str, mtime_ns: int, max_qvalue: float) -> pd.DataFrame:
+    # mtime_ns only keys the cache, so a re-run of the workflow invalidates it
+    return identified_peaks(osw_path_str, max_qvalue=max_qvalue)
+
+
+st.markdown("---")
+st.subheader("1b. Run QC")
+
+if selected_osw:
+    qc_qvalue = st.select_slider(
+        "Identifications up to q-value",
+        options=[0.001, 0.005, 0.01, 0.05, 0.1],
+        value=0.01,
+        key="run_qc_qvalue",
+        help="Rank-1 target peaks at or below this q-value count as identified. Ignored for an unscored OSW file.",
+    )
+    try:
+        qc_peaks = _load_identified_peaks(selected_osw, _file_mtime_ns(selected_osw), float(qc_qvalue))
+    except Exception as exc:
+        qc_peaks = pd.DataFrame()
+        st.warning(f"Could not read the identified peaks from the OSW file: {exc}")
+
+    if qc_peaks.empty:
+        st.info("No identified target peaks at this q-value in the selected OSW file.")
+    else:
+        if not bool(qc_peaks["scored"].iloc[0]):
+            st.caption(
+                "This OSW file has not been scored yet, so the largest peak of every target precursor is used."
+            )
+        st.caption(
+            "Is every run calibrated, accurate and sharp? One row per run, from the peaks identified in it. "
+            "A run whose RT fit, mass error or peak width stands out from the others deserves a look in the "
+            "XIC Chromatogram Viewer."
+        )
+
+        def _decimals(n: int) -> dict:
+            return {"formatter": "money", "formatterParams": {"thousand": False, "precision": n}}
+
+        qc_summary = run_summary(qc_peaks)
+        show_insight_table(
+            qc_summary,
+            name="run_qc_summary",
+            title="run_qc",
+            source_files=[selected_osw],
+            extra_key=f"q={qc_qvalue}",
+            height=min(500, 140 + 34 * len(qc_summary)),
+            layout="fitColumns",
+            column_overrides={
+                "median peak width (s)": _decimals(1),
+                "median fragment error (ppm)": _decimals(2),
+                "median precursor error (ppm)": _decimals(2),
+                "RT fit R²": _decimals(4),
+                "RT residual IQR": _decimals(2),
+            },
+        )
+
+        st.plotly_chart(follow_app_theme(detections_figure(qc_peaks)), use_container_width=True)
+
+        rt_col_a, rt_col_b = st.columns(2)
+        rt_col_a.plotly_chart(follow_app_theme(rt_calibration_figure(qc_peaks)), use_container_width=True)
+        rt_col_b.plotly_chart(follow_app_theme(rt_residual_figure(qc_peaks)), use_container_width=True)
+        st.caption(
+            "Left: measured against library (iRT) retention time, with a straight-line fit per run. "
+            "Right: what is left after OpenSwath's own RT calibration; a wide box means the calibration "
+            "fits this run poorly."
+        )
+
+        mass_col_a, mass_col_b = st.columns(2)
+        mass_col_a.plotly_chart(
+            follow_app_theme(per_run_box_figure(
+                qc_peaks, "ms2_ppm", "Fragment mass error", "mean absolute error per peak (ppm)"
+            )),
+            use_container_width=True,
+        )
+        if qc_peaks["ms1_ppm"].notna().any():
+            mass_col_b.plotly_chart(
+                follow_app_theme(per_run_box_figure(
+                    qc_peaks, "ms1_ppm", "Precursor mass error", "mean absolute error per peak (ppm)"
+                )),
+                use_container_width=True,
+            )
+        else:
+            mass_col_b.info("No MS1 scores in this OSW file, so there is no precursor mass error.")
+        st.plotly_chart(
+            follow_app_theme(per_run_box_figure(qc_peaks, "width", "Peak width", "peak start to end (s)")),
+            use_container_width=True,
+        )
+else:
+    st.info("Select an OSW file above to check retention time calibration, mass error and peak width per run.")
 
 st.markdown("---")
 st.subheader("2. Identification and Quantification Results")
