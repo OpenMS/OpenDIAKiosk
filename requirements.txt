@@ -150,3 +150,10 @@ scipy==1.17.1
 scikit-learn==1.8.0
 xgboost-cpu==3.2.0
 pyprophet==3.0.15
+
+# Reads Bruker timsTOF .d folders (TDF) for the conversion to mzML
+# (src/python-tools/bruker_to_mzml.py). Open-source, no vendor library.
+timsrust_pyo3==0.4.1
+
+# Reads app.yaml, the app spec (utils/app_spec.py)
+pyyaml>=6.0
