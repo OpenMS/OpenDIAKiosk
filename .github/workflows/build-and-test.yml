@@ -365,7 +365,7 @@ jobs:
       - name: Install nginx ingress controller
         run: |
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-          kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+          kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s
 
       - name: Deploy with Kustomize
         run: |
