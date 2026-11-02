@@ -16,11 +16,22 @@ from typing import Optional
 
 import pandas as pd
 import plotly.graph_objects as go
+import polars as pl
+from openms_insight import MirrorPlot, StateManager
 import streamlit as st
 from scipy.signal import savgol_filter
 
 from src.common.common import page_setup, follow_app_theme
+from src.common.insight_tables import INSIGHT_CACHE_DIRNAME, plot_cache, show_insight_table
 from src.osw_utils import OSWFile
+from src.peak_validation import (
+    library_match_frame,
+    peak_areas_figure,
+    peak_validation_tables,
+    retention_times_figure,
+    shade_peak,
+    short_run_names,
+)
 
 # -- pyopenms version guard ----------------------------------------------------
 try:
@@ -111,6 +122,7 @@ _defaults: dict = {
     "osw_runs_df": None,
     "show_peak_boundaries": False,
     "show_top_boundary_only": True,
+    "shade_chosen_peak": True,
     "boundary_run_mapping": {},
 }
 for _k, _v in _defaults.items():
@@ -140,6 +152,8 @@ def _discover_workspace_xic_files() -> dict[str, str]:
         for path in workspace_dir.rglob(pattern):
             if not path.is_file():
                 continue
+            if INSIGHT_CACHE_DIRNAME in path.relative_to(workspace_dir).parts:
+                continue  # openms-insight's own parquet caches, not chromatograms
             label = _workspace_relative_label(str(path))
             discovered[label] = str(path.resolve())
 
@@ -979,6 +993,17 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
             help="If enabled, only the top-ranked feature is shown. Otherwise all feature boundaries are shown.",
         )
 
+    shade_chosen_peak = st.toggle(
+        "Shade the integrated peak",
+        value=st.session_state.shade_chosen_peak,
+        key="shade_chosen_peak",
+        disabled=(st.session_state.get("osw_handler") is None),
+        help=(
+            "Fill the area under each transition between the boundaries of the peak OpenSwath "
+            "picked (rank 1), as Skyline does, and mark its apex. The title shows its q-value and dotp."
+        ),
+    )
+
     tmp_path_map = dict(st.session_state.xic_tmp_paths)
     file_names = [
         f for f in list(tmp_path_map.keys()) if f in st.session_state.get("runs_sel", list(tmp_path_map.keys()))
@@ -990,6 +1015,33 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
 
     rows = [file_names[i : i + n_cols] for i in range(0, len(file_names), n_cols)]
     osw_handler: Optional[OSWFile] = st.session_state.get("osw_handler")
+
+    # The peak OpenSwath picked in every mapped run, for the shading and the
+    # validation views below the chromatograms
+    validation_runs, validation_areas = pd.DataFrame(), pd.DataFrame()
+    short_names = short_run_names(file_names)
+    run_labels = {
+        int(st.session_state.boundary_run_mapping[f]): short_names[f]
+        for f in file_names
+        if st.session_state.boundary_run_mapping.get(f) is not None
+    }
+    if osw_handler is not None and run_labels:
+        sel_transition_ids = list(sel_row.get("transition_id") if sel_row.get("transition_id") is not None else [])
+        sel_annotations = list(sel_row.get("annotation") if sel_row.get("annotation") is not None else [])
+        transition_labels = {
+            int(tid): str(label)
+            for tid, label in zip(sel_transition_ids, sel_annotations)
+            if tid is not None and not pd.isna(tid)
+        }
+        try:
+            validation_runs, validation_areas = peak_validation_tables(
+                osw_handler.osw_path, selected_pid, run_labels, transition_labels
+            )
+        except Exception as exc:
+            st.warning(f"Could not read the picked peaks from the OSW file: {exc}")
+    chosen_peak_by_run = (
+        validation_runs.set_index("run") if not validation_runs.empty else pd.DataFrame()
+    )
 
     for row_files in rows:
         cols = st.columns(len(row_files))
@@ -1048,6 +1100,19 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
                                     result = _add_peak_boundaries_to_figure(result, boundaries_df)
                                     boundary_table = _format_feature_table(boundaries_df)
 
+                        if shade_chosen_peak and short_names[fname] in chosen_peak_by_run.index:
+                            peak = chosen_peak_by_run.loc[short_names[fname]]
+                            result = shade_peak(result, peak["start (s)"], peak["end (s)"], peak["apex RT (s)"])
+                            facts = []
+                            if not pd.isna(peak["q-value"]):
+                                facts.append(f"q={peak['q-value']:.3g}")
+                            if not pd.isna(peak["dotp"]):
+                                facts.append(f"dotp={peak['dotp']:.2f}")
+                            if facts:
+                                result.update_layout(
+                                    title_text=f"{result.layout.title.text}<br><sup>{' · '.join(facts)}</sup>"
+                                )
+
                         result.update_layout(height=plot_height)
                         st.plotly_chart(follow_app_theme(result), use_container_width=True)
 
@@ -1070,6 +1135,87 @@ if st.session_state.files_loaded and st.session_state.shared_analytes is not Non
                 except Exception as exc:
                     st.markdown(f"**{fname}**")
                     st.error(f"Failed to open `{fname}`:\n\n`{exc}`")
+
+    st.markdown("---")
+    st.subheader("🧪 Peak validation across runs")
+    if osw_handler is None:
+        st.info("Select an OSW file above and reload the XIC files to compare the picked peaks across runs.")
+    elif validation_runs.empty:
+        st.info("The OSW file has no picked peak for this precursor in the mapped runs.")
+    else:
+        st.caption(
+            "The peak OpenSwath picked for this precursor in each run, as Skyline shows it: when the "
+            "peak is right, the transitions keep the library's relative intensities (dotp near 1) and "
+            "the apex lands at a similar retention time in every run. dotp is the dot product of the "
+            "square-root areas with the library intensities."
+        )
+
+        def _decimals(n: int) -> dict:
+            return {"formatter": "money", "formatterParams": {"thousand": False, "precision": n}}
+
+        show_insight_table(
+            validation_runs.drop(columns=["feature"]),
+            name=f"xic_peak_validation_{selected_pid}",
+            title=f"picked_peaks_{selected_pid}",
+            height=140 + 34 * len(validation_runs),
+            layout="fitColumns",
+            column_overrides={
+                **{c: _decimals(1) for c in ["apex RT (s)", "start (s)", "end (s)", "width (s)", "expected RT (s)"]},
+                "area": {"formatter": "money", "formatterParams": {"thousand": ",", "precision": 0}},
+                "q-value": {"formatter": "money", "formatterParams": {"thousand": False, "precision": 5}},
+                "dotp": _decimals(3),
+            },
+        )
+
+        normalized = st.toggle(
+            "Show peak areas as share of the run's total",
+            value=False,
+            key="peak_areas_normalized",
+            help="Skyline's 'Normalized' view: each bar adds up to 100 %, so a transition whose share changes stands out.",
+        )
+        val_col_a, val_col_b = st.columns(2)
+        val_col_a.plotly_chart(
+            follow_app_theme(peak_areas_figure(validation_areas, normalized=normalized)),
+            use_container_width=True,
+        )
+        val_col_b.plotly_chart(
+            follow_app_theme(retention_times_figure(validation_runs)),
+            use_container_width=True,
+        )
+
+        st.markdown("**Library match**")
+        match_runs = validation_runs["run"].tolist()
+        match_run = st.selectbox(
+            "Run",
+            options=match_runs,
+            key="library_match_run",
+            help="Measured transition areas in this run (top) against the spectral library (bottom).",
+        )
+        match_dotp = validation_runs.set_index("run").loc[match_run, "dotp"]
+        st.caption(
+            "Top: the measured peak area of each transition in the selected run. Bottom: the library "
+            "intensity of the same transition. Both are scaled to their largest transition."
+            + ("" if pd.isna(match_dotp) else f" dotp = {match_dotp:.3f}.")
+        )
+        match_frame = library_match_frame(validation_areas)
+        match_state = StateManager(f"xic_library_match_{selected_pid}")
+        match_state.set_selection("library_match_run", match_run)
+        MirrorPlot(
+            data=pl.from_pandas(match_frame).lazy(),
+            filters_top={"library_match_run": "side"},
+            filters_bottom={"library_match_library": "side"},
+            filter_defaults_bottom={"library_match_library": "library"},
+            interactivity={"library_match_peak": "peak_id"},
+            x_column="mz",
+            y_column="relative",
+            annotation_column="label",
+            highlight_column="matched",
+            title_top="measured",
+            title_bottom="library",
+            x_label="product m/z",
+            y_label="relative intensity (%)",
+            **plot_cache(f"xic_library_match_{selected_pid}", match_frame),
+        )(key=f"xic_library_match_{selected_pid}", state_manager=match_state, height=360)
 
     st.markdown("---")
     with st.expander("📊 Full analyte table (all loaded files)", expanded=False):

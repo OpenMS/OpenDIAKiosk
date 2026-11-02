@@ -138,6 +138,13 @@ watchdog==6.0.0
     # via streamlit
 xlsxwriter
 
+# Interactive result views (server-side paginated tables, mirror plots)
+openms-insight==0.3.1
+polars>=1.0.0
+# Forces polars to prefer its most CPU-compatible native runtime (avoids
+# AVX-runtime crashes on some CPUs; same pin as quantms-web).
+polars-runtime-compat
+
 # Redis Queue dependencies (for online mode)
 redis>=5.0.0
 rq>=1.16.0
