@@ -108,6 +108,7 @@ sync:
   # tier (a data migration, not a sync): RWO kiosk-pvc with pod affinity.
   - k8s/*
   - .github/workflows/build-and-test.yml
+  - .github/kind-config.yaml
   - docker-compose.yml
   - docs/kubernetes-deployment.md
   - app.yaml
