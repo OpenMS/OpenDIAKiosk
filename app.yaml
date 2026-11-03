@@ -104,9 +104,9 @@ deploy:
   online_deployment: false
 sync:
   app_owned:
-  # Deployment stays app-owned until the move to the template's NFS storage
-  # tier (a data migration, not a sync): RWO kiosk-pvc with pod affinity.
-  - k8s/*
+  # k8s/base and k8s/components are the template's; OpenDIAKiosk's own
+  # values are patches in k8s/overlays/prod.
+  - k8s/argocd/*
   - .github/workflows/build-and-test.yml
   - .github/kind-config.yaml
   - docker-compose.yml

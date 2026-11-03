@@ -13,23 +13,18 @@ spec:
     metadata:
       labels:
         component: streamlit
-        volume-group: kiosk
     spec:
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: volume-group
-                    operator: In
-                    values:
-                      - kiosk
-              topologyKey: kubernetes.io/hostname
       initContainers:
         # The seeding logic lives in docker/seed-demos.sh, not inline here, so
         # that tests/test_seed_demos.py executes the script the image ships.
-        # It stages the copy in a private directory and renames it into place,
-        # and always exits 0 so a slow volume cannot hold the pod in Init.
+        # It stages the copy in a private directory and renames it into place -
+        # rename(2) on a directory is atomic and fails on a non-empty target,
+        # so with replicas: 2 the winner renames and the loser stands down.
+        #
+        # The script bounds itself with `timeout` and always exits 0: this
+        # container gates pod start on the shared workspaces mount, and a pod
+        # held in Init by a slow or restarting NFS server would defeat the
+        # point of Streamlit being able to serve through a storage outage.
         - name: seed-demos
           image: openms-streamlit
           imagePullPolicy: Always

@@ -6,13 +6,11 @@ namespace: openms
 resources:
   - configmap.yaml
   - redis.yaml
-  # The workspaces live on a Manila share (workspaces-manila-pvc). The old
-  # RWO Cinder claim kiosk-pvc carried Prune=false, so Argo CD leaves it on
-  # the cluster until it is deleted by hand.
   - workspace-pvc.yaml
   - streamlit-secrets.yaml
   - streamlit-deployment.yaml
   - streamlit-service.yaml
+  - sync-deployment.yaml
   - rq-worker-deployment.yaml
   - ingress.yaml
   - traefik-ingressroute.yaml
