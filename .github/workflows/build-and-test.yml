@@ -129,7 +129,9 @@ jobs:
     # exercises that contract by running the built image under apptainer and
     # waiting for the streamlit /_stcore/health endpoint to come up.
     needs: build
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, not ubuntu-latest: the apptainer .deb depends on libfuse3-3,
+    # which Ubuntu 26.04 no longer ships, so installing apptainer fails there.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -287,7 +289,9 @@ jobs:
     # on-the-fly OCI->SIF conversion the docker:// path requires.
     needs: test-apptainer
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, not ubuntu-latest: the apptainer .deb depends on libfuse3-3,
+    # which Ubuntu 26.04 no longer ships, so installing apptainer fails there.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
