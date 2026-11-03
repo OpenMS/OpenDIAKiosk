@@ -519,6 +519,24 @@ class CommandExecutor:
             if value_type == "bool" or key not in param_types:
                 param_types[key] = value_type
 
+        # A stored parameter the installed tool does not have (saved before an
+        # upgrade that removed or renamed it) makes the tool refuse the whole
+        # run: "Parameters passed to '<tool>' are invalid", exit code 6. Leave
+        # it out and say so. Only when the tool's .ini is there to tell.
+        known_params = self.parameter_manager.known_topp_params(tool)
+        saved_params = params.get(params_key)
+        if isinstance(known_params, set) and isinstance(saved_params, dict):
+            unknown = sorted(k for k in saved_params if k not in known_params)
+            for k in unknown:
+                del saved_params[k]
+            if unknown:
+                self.logger.log(
+                    f"WARNING: {tool} has no parameter {', '.join(unknown)}; "
+                    "the stored value is not passed on. Check the parameters "
+                    "of this tool on the configuration page.",
+                    0,
+                )
+
         # Flags declared explicitly via input_TOPP(flag_parameters=[...]) are
         # valueless CLI switches too: params.json takes priority (survives a
         # session restart), session_state is the live fallback.
