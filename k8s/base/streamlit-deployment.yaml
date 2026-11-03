@@ -87,7 +87,7 @@ spec:
       volumes:
         - name: workspaces
           persistentVolumeClaim:
-            claimName: kiosk-pvc
+            claimName: workspaces-manila-pvc
         - name: config
           configMap:
             name: streamlit-config

@@ -1,15 +1,18 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: workspaces-pvc
+  name: workspaces-manila-pvc
   annotations:
-    # Argo CD: never prune or cascade-delete. On cinder-csi, deleting the claim
-    # deletes the volume.
+    # Argo CD: never prune or cascade-delete; the claim holds every workspace.
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
+  # A Manila NFS share (streamlit-template k8s/storage/): every node can mount
+  # it, so the pods are no longer bound to the node of a Cinder volume.
   accessModes:
-    - ReadWriteOnce
-  storageClassName: cinder-csi
+    - ReadWriteMany
+  storageClassName: openms-manila-nfs
   resources:
     requests:
-      storage: 500Gi
+      # Counted against the project's Manila quota (1000 GiB, shared by every
+      # app). Manila grows a share in place: raise this and let Argo CD apply it.
+      storage: 200Gi
