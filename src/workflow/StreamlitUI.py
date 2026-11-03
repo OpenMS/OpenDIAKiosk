@@ -1338,15 +1338,18 @@ class StreamlitUI:
                     del st.session_state[session_key]
             st.session_state[tool_state_signature_key] = tool_state_signature
 
+        # Apps may still set st.session_state["advanced"] to show every parameter
+        # on the page; the template itself has no toggle for it any more.
+        show_advanced = bool(st.session_state.get("advanced", False))
+
         # Split into subsections if required
         param_sections = {}
         section_descriptions = {}
         if display_subsections:
             for p in params:
-                # Skip advanced/non-included parameters if toggle not enabled
-                if not st.session_state["advanced"] and (
-                    p["advanced"] or p["non_included"]
-                ):
+                # Advanced and non-included parameters only with the
+                # "Show advanced parameters" toggle (src/common/common.py)
+                if not show_advanced and (p["advanced"] or p["non_included"]):
                     continue
                 # Add section description to section_descriptions dictionary if it exists
                 if p["section_description"]:
@@ -1360,12 +1363,10 @@ class StreamlitUI:
                     param_sections[p["sections"]] = [p]
         else:
             # Simply put all parameters in "all" section if no subsections required
-            # Filter advanced/non-included parameters if toggle not enabled
+            # Advanced and non-included parameters only with the advanced toggle
             param_sections["all"] = [
-                p
-                for p in params
-                if st.session_state["advanced"]
-                or (not p["advanced"] and not p["non_included"])
+                p for p in params
+                if show_advanced or (not p["advanced"] and not p["non_included"])
             ]
 
         if display_tool_name:
@@ -2014,7 +2015,7 @@ class StreamlitUI:
         script. The widgets are arranged in a grid with a specified number of
         columns. Parameters can be marked as hidden or advanced within the DEFAULTS
         dictionary; hidden parameters are not displayed, and advanced parameters
-        are displayed only if the user has selected to view advanced options.
+        are displayed in a collapsed "advanced parameters" expander below the others.
 
         Args:
         script_file (str): The file name or path to the Python script containing
@@ -2043,10 +2044,11 @@ class StreamlitUI:
             st.error("No DEFAULTS found in script file.")
             return
         elif isinstance(defaults, list):
-            # display input widget for every entry in defaults
-            # input widgets in n number of columns
-            cols = st.columns(num_cols)
-            i = 0
+            # Widgets in num_cols columns; advanced parameters follow in a
+            # collapsed expander (the expander keeps their widgets, and so
+            # their values, on the page while it is closed)
+            show_advanced = bool(st.session_state.get("advanced", False))
+            basic, advanced_entries = [], []
             for entry in defaults:
                 key = f"{path.name}:{entry['key']}" if "key" in entry else None
                 if key is None:
@@ -2061,34 +2063,18 @@ class StreamlitUI:
                 if hide:
                     continue
                 advanced = entry["advanced"] if "advanced" in entry else False
-                # skip avdanced parameters if not selected
-                if not st.session_state["advanced"] and advanced:
-                    continue
-                name = entry["name"] if "name" in entry else key
-                help = entry["help"] if "help" in entry else ""
-                min_value = entry["min"] if "min" in entry else None
-                max_value = entry["max"] if "max" in entry else None
-                step_size = entry["step_size"] if "step_size" in entry else 1
-                widget_type = entry["widget_type"] if "widget_type" in entry else "auto"
-                options = entry["options"] if "options" in entry else None
-
-                with cols[i]:
-                    self.input_widget(
-                        key=key,
-                        default=value,
-                        name=name,
-                        help=help,
-                        widget_type=widget_type,
-                        options=options,
-                        min_value=min_value,
-                        max_value=max_value,
-                        step_size=step_size,
-                    )
-                # increment number of columns, create new cols object if end of line is reached
-                i += 1
-                if i == num_cols:
-                    i = 0
-                    cols = st.columns(num_cols)
+                if advanced and not show_advanced:
+                    advanced_entries.append((key, value, entry))
+                else:
+                    basic.append((key, value, entry))
+            self._python_widget_grid(basic, num_cols)
+            if advanced_entries:
+                with st.expander(
+                    f"{len(advanced_entries)} advanced parameter"
+                    + ("s" if len(advanced_entries) != 1 else ""),
+                    icon=":material/tune:",
+                ):
+                    self._python_widget_grid(advanced_entries, num_cols)
         self.parameter_manager.save_parameters()
 
     def render_structured_config(
@@ -2475,6 +2461,33 @@ class StreamlitUI:
         # persist parameters
         if autosave:
             self.parameter_manager.save_parameters()
+    def _python_widget_grid(self, entries: list, num_cols: int) -> None:
+        """input_widget for each (key, value, DEFAULTS entry), num_cols per row."""
+        cols = []
+        for i, (key, value, entry) in enumerate(entries):
+            if i % num_cols == 0:
+                cols = st.columns(num_cols)
+            name = entry["name"] if "name" in entry else key
+            help = entry["help"] if "help" in entry else ""
+            min_value = entry["min"] if "min" in entry else None
+            max_value = entry["max"] if "max" in entry else None
+            step_size = entry["step_size"] if "step_size" in entry else 1
+            widget_type = entry["widget_type"] if "widget_type" in entry else "auto"
+            options = entry["options"] if "options" in entry else None
+
+            with cols[i % num_cols]:
+                self.input_widget(
+                    key=key,
+                    default=value,
+                    name=name,
+                    help=help,
+                    widget_type=widget_type,
+                    options=options,
+                    min_value=min_value,
+                    max_value=max_value,
+                    step_size=step_size,
+                )
+
     def experimental_design(self, key: str, name: str = "Experimental design") -> None:
         """
         Table assigning each selected input file a condition, biological replicate and fraction.
