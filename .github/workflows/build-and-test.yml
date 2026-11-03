@@ -387,6 +387,9 @@ jobs:
             yq 'select(.kind != "IngressRoute")' | \
             sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' | \
             sed 's|storageClassName: cinder-csi|storageClassName: standard|g' > /tmp/manifests.yaml
+          # The shared namespace is managed by the streamlit-template's
+          # deployment, not by this app's manifests, so create it here.
+          kubectl create namespace openms --dry-run=client -o yaml | kubectl apply -f -
           for i in 1 2 3 4 5; do
             if kubectl apply -f /tmp/manifests.yaml; then
               echo "Deploy succeeded on attempt $i"
@@ -483,6 +486,9 @@ jobs:
           kubectl kustomize k8s/overlays/prod/ | \
             sed 's|imagePullPolicy: IfNotPresent|imagePullPolicy: Never|g' | \
             sed 's|storageClassName: cinder-csi|storageClassName: standard|g' > /tmp/manifests.yaml
+          # The shared namespace is managed by the streamlit-template's
+          # deployment, not by this app's manifests, so create it here.
+          kubectl create namespace openms --dry-run=client -o yaml | kubectl apply -f -
           for i in 1 2 3 4 5; do
             if kubectl apply -f /tmp/manifests.yaml; then
               echo "Deploy succeeded on attempt $i"

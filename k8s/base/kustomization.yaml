@@ -4,10 +4,11 @@ kind: Kustomization
 namespace: openms
 
 resources:
-  - namespace.yaml
   - configmap.yaml
   - redis.yaml
-  - workspace-pvc.yaml
+  # workspace-pvc.yaml (from the template) is left out: OpenDIAKiosk keeps
+  # its workspaces on kiosk-pvc, and an unused claim stays Pending forever,
+  # which holds the Argo CD application in Progressing.
   - kiosk-pvc.yaml
   - streamlit-secrets.yaml
   - streamlit-deployment.yaml
