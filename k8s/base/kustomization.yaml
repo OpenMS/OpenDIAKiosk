@@ -6,10 +6,10 @@ namespace: openms
 resources:
   - configmap.yaml
   - redis.yaml
-  # workspace-pvc.yaml (from the template) is left out: OpenDIAKiosk keeps
-  # its workspaces on kiosk-pvc, and an unused claim stays Pending forever,
-  # which holds the Argo CD application in Progressing.
-  - kiosk-pvc.yaml
+  # The workspaces live on a Manila share (workspaces-manila-pvc). The old
+  # RWO Cinder claim kiosk-pvc carried Prune=false, so Argo CD leaves it on
+  # the cluster until it is deleted by hand.
+  - workspace-pvc.yaml
   - streamlit-secrets.yaml
   - streamlit-deployment.yaml
   - streamlit-service.yaml
