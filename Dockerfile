@@ -1,22 +1,36 @@
 # This Dockerfile builds OpenMS, the TOPP tools, pyOpenMS and thidparty tools.
 # It also adds a basic streamlit server that serves a pyOpenMS-based app.
 # hints:
-# build image and give it a name (here: streamlitapp) with: docker build --no-cache -t streamlitapp:latest --build-arg GITHUB_TOKEN=<your-github-token> . 2>&1 | tee build.log
+# build image and give it a name (here: streamlitapp) with: docker build --no-cache -t streamlitapp:latest --secret id=github_token,env=GITHUB_TOKEN . 2>&1 | tee build.log
 # check if image was build: docker image ls
 # run container: docker run -p 8501:8501 streamlitappsimple:latest
 # debug container after build (comment out ENTRYPOINT) and run container with interactive /bin/bash shell
 # prune unused images/etc. to free disc space (e.g. might be needed on gitpod). Use with care.: docker system prune --all --force
+#
+# OpenMS version: OPENMS_BRANCH below takes a release branch (release/3.5.0),
+# a release tag (v3.6.0) or a branch such as develop. Override it per build with
+# --build-arg OPENMS_BRANCH=v3.6.0, or change the default in an app's copy.
+# The same steps build every OpenMS from 3.5 on: dependencies come from Ubuntu
+# packages plus Apache Arrow/Parquet (required from 3.6 on), never from the
+# contrib or vcpkg submodules, and the pyOpenMS wheel is built the way the
+# checked-out source defines it (autowrap/Cython up to 3.5, nanobind from 3.6).
+# The same file builds amd64 and arm64.
 
 FROM ubuntu:24.04 AS setup-build-system
-# ARG OPENMS_REPO=https://github.com/OpenMS/OpenMS.git
-# ARG OPENMS_BRANCH=release/3.5.0
+# OpenDIAKiosk builds OpenMS from this branch (its OpenSwath tools).
 ARG OPENMS_REPO=https://github.com/singjc/OpenMS.git
 ARG OPENMS_BRANCH=for/opendiakiosk
 ARG PORT=8501
-# Streamlit app GitHub user name (to download artifact from).
-ARG GITHUB_USER=OpenMS
-# Streamlit app GitHub repository name (to download artifact from).
-ARG GITHUB_REPO=OpenDIAKiosk
+# GitHub repository whose latest release supplies the bundled Windows
+# installer. Empty: `github-user` and `repository-name` from settings.json,
+# so every app downloads its own installer without editing this file.
+ARG GITHUB_USER=
+ARG GITHUB_REPO=
+# Python of the app's environment. pyOpenMS 3.6 needs 3.11 or newer.
+ARG PYTHON_VERSION=3.11
+# Apache Arrow/Parquet major version. OpenMS 3.6 needs 23 or newer; it is pinned
+# so the libraries do not move under an image between two builds.
+ARG ARROW_VERSION=23
 
 USER root
 
@@ -24,43 +38,35 @@ USER root
 # later packages, otherwise waits for a timezone and the build hangs.
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 
-# Install required Ubuntu packages.
+# Install required Ubuntu packages. cmake is Ubuntu 24.04's 3.28 (OpenMS 3.5
+# needs 3.24, pyOpenMS 3.6 3.26).
 RUN apt-get -y update
-RUN apt-get install -y --no-install-recommends --no-install-suggests g++ autoconf automake patch libtool make git gpg wget ca-certificates curl jq libgtk2.0-dev openjdk-8-jdk cron
+RUN apt-get install -y --no-install-recommends --no-install-suggests g++ autoconf automake patch libtool make cmake pkg-config git gpg wget ca-certificates curl jq libgtk2.0-dev openjdk-8-jdk cron
 RUN update-ca-certificates
-RUN apt-get install -y --no-install-recommends --no-install-suggests libsvm-dev libeigen3-dev coinor-libcbc-dev libglpk-dev libzip-dev zlib1g-dev libxerces-c-dev libbz2-dev libomp-dev libhdf5-dev patchelf
-RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-date-time1.83-dev \
-                                                                     libboost-iostreams1.83-dev \
-                                                                     libboost-regex1.83-dev \
-                                                                     libboost-math1.83-dev \
-                                                                     libboost-random1.83-dev
+RUN apt-get install -y --no-install-recommends --no-install-suggests libsvm-dev libeigen3-dev coinor-libcbc-dev coinor-libcoinmp-dev libglpk-dev libzip-dev zlib1g-dev libzstd-dev libxerces-c-dev libbz2-dev libcurl4-openssl-dev libomp-dev libhdf5-dev
+RUN apt-get install -y --no-install-recommends --no-install-suggests libboost-date-time-dev \
+                                                                     libboost-iostreams-dev \
+                                                                     libboost-regex-dev \
+                                                                     libboost-math-dev \
+                                                                     libboost-random-dev
 RUN apt-get install -y --no-install-recommends --no-install-suggests qt6-base-dev libqt6svg6-dev libqt6opengl6-dev libqt6openglwidgets6 libgl-dev
 
-RUN set -eux; \
-        apt-get update; \
-        wget -qO /tmp/apache-arrow-apt-source-latest-noble.deb \
-            https://repo1.maven.org/maven2/org/apache/arrow/ubuntu/apache-arrow-apt-source-latest-noble.deb; \
-        apt-get install -y --no-install-recommends /tmp/apache-arrow-apt-source-latest-noble.deb; \
-        # The apt-source package on Maven Central is stuck at 19.0.1 and its
-        # keyring predates the key the Arrow repo is now signed with
-        # (NO_PUBKEY 9E922B2D60E9FD1C), so trust Apache Arrow's published KEYS.
-        GNUPGHOME=$(mktemp -d); export GNUPGHOME; \
-        wget -qO /tmp/arrow-KEYS https://downloads.apache.org/arrow/KEYS; \
-        gpg --batch --import /tmp/arrow-KEYS; \
-        gpg --batch --export > /usr/share/keyrings/apache-arrow-keys.gpg; \
-        sed -i 's|^Signed-By: .*|Signed-By: /usr/share/keyrings/apache-arrow-keys.gpg|' /etc/apt/sources.list.d/apache-arrow.sources; \
-        rm -rf /tmp/arrow-KEYS "$GNUPGHOME"; unset GNUPGHOME; \
-        apt-get update; \
-        # Pin Arrow 23: find a libparquet-dev candidate that starts with 23.
-        ARROW_VER=$(apt-cache madison libparquet-dev | awk '{print $3}' | grep -E '^23\.' | head -n1) || true; \
-        if [ -z "$ARROW_VER" ]; then \
-                echo "ERROR: no libparquet-dev 23.* available from apt source"; \
-                apt-cache madison libparquet-dev || true; \
-                exit 1; \
-        fi; \
-        apt-get install -y --no-install-recommends libparquet-dev="$ARROW_VER" libarrow-dev="$ARROW_VER"; \
-        rm -f /tmp/apache-arrow-apt-source-latest-noble.deb; \
-        rm -rf /var/lib/apt/lists/*
+# Apache Arrow/Parquet from Apache's apt repository, as OpenMS's own image does.
+# Appending Apache's KEYS keeps the repository usable across key rotations.
+# downloads.apache.org sometimes does not answer GitHub's arm64 runners (wget
+# hung until it gave up, exit code 4), so wget gets a timeout and retries and
+# falls back to dist.apache.org, the release tree it mirrors.
+RUN . /etc/os-release \
+    && wget -q https://packages.apache.org/artifactory/arrow/ubuntu/apache-arrow-apt-source-latest-${VERSION_CODENAME}.deb \
+    && apt-get install -y --no-install-recommends ./apache-arrow-apt-source-latest-${VERSION_CODENAME}.deb \
+    && rm apache-arrow-apt-source-latest-${VERSION_CODENAME}.deb \
+    && (wget -q --timeout=30 --tries=3 -O /tmp/arrow-KEYS https://downloads.apache.org/arrow/KEYS \
+        || wget -q --timeout=30 --tries=3 -O /tmp/arrow-KEYS https://dist.apache.org/repos/dist/release/arrow/KEYS) \
+    && cat /tmp/arrow-KEYS >> /usr/share/keyrings/apache-arrow-apt-source.asc \
+    && rm /tmp/arrow-KEYS \
+    && printf 'Package: libarrow* libparquet*\nPin: version %s.*\nPin-Priority: 999\n' "${ARROW_VERSION}" > /etc/apt/preferences.d/arrow \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends --no-install-suggests libarrow-dev libparquet-dev
 
 # Install Github CLI
 RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
@@ -71,12 +77,12 @@ RUN (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
 	&& apt-get update \
 	&& apt-get install gh -y
 
-# Download and install miniforge.
+# Download and install miniforge (x86_64 or aarch64, whichever this build runs on).
 ENV PATH="/root/miniforge3/bin:${PATH}"
 RUN wget -q \
-    https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
-    && bash Miniforge3-Linux-x86_64.sh -b \
-    && rm -f Miniforge3-Linux-x86_64.sh
+    https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(uname -m).sh \
+    && bash Miniforge3-Linux-$(uname -m).sh -b \
+    && rm -f Miniforge3-Linux-$(uname -m).sh
 RUN mamba --version
 
 # Make /root traversable so the entrypoint can `source
@@ -87,97 +93,100 @@ RUN mamba --version
 RUN chmod o+x /root
 
 # Setup mamba environment.
-RUN mamba create -n streamlit-env python=3.11
+RUN mamba create -n streamlit-env python=${PYTHON_VERSION}
 RUN echo "mamba activate streamlit-env" >> ~/.bashrc
-ENV STREAMLIT_ENV_PREFIX=/root/miniforge3/envs/streamlit-env
 SHELL ["/bin/bash", "--rcfile", "~/.bashrc"]
 SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
 
-# Install up-to-date cmake via mamba and packages for pyOpenMS build.
-RUN mamba install cmake
-RUN pip install --upgrade pip && python -m pip install -U setuptools nose "cython>=3.1.0,<3.3" "autowrap<=0.24" pandas numpy pytest
+# Clone the OpenMS branch or tag, and of its submodules only THIRDPARTY: the
+# dependencies come from the packages above, not from contrib or vcpkg.
+RUN git clone --depth=1 -b ${OPENMS_BRANCH} --single-branch ${OPENMS_REPO} /OpenMS
+WORKDIR /OpenMS
 
-# Clone OpenMS branch and the associcated contrib+thirdparties+pyOpenMS-doc submodules.
-RUN git clone --recursive --depth=1 -b ${OPENMS_BRANCH} --single-branch ${OPENMS_REPO} && cd /OpenMS
+# Python packages for the pyOpenMS build, as the checked-out source lists them.
+# OpenMS 3.6 builds pyOpenMS with nanobind (build requirements in
+# src/pyOpenMS/pyproject.toml); earlier versions with autowrap and Cython
+# (src/pyOpenMS/requirements_bld.txt). src/CMakeLists.txt defines the
+# pyopenms_wheel target only in the nanobind generation.
+# cython<3.3: Cython 3.3.0 (2026-08-22) removed Cython.Compiler.Nodes.CConstOrVolatileTypeNode,
+# which autowrap up to 0.24 needs, breaking `make pyopenms`.
+RUN pip install --upgrade pip && python -m pip install -U setuptools wheel pandas numpy pytest \
+    && if grep -q pyopenms_wheel src/CMakeLists.txt; then \
+        python -c "import tomllib; print('\n'.join(tomllib.load(open('src/pyOpenMS/pyproject.toml', 'rb'))['build-system']['requires']))" > /tmp/pyopenms-build.txt; \
+    elif [ -f src/pyOpenMS/requirements_bld.txt ]; then \
+        { cat src/pyOpenMS/requirements_bld.txt; echo; printf '%s\n' nose "cython<3.3" "autowrap<=0.24"; } > /tmp/pyopenms-build.txt; \
+    else \
+        printf '%s\n' nose "cython>=3.1.0,<3.3" "autowrap<=0.24" > /tmp/pyopenms-build.txt; \
+    fi \
+    && cat /tmp/pyopenms-build.txt \
+    && python -m pip install -r /tmp/pyopenms-build.txt
 
 # Pull Linux compatible third-party dependencies and store them in directory thirdparty.
-WORKDIR /OpenMS
 RUN mkdir /thirdparty && \
-    git submodule update --init THIRDPARTY && \
+    git submodule update --init --depth=1 THIRDPARTY && \
     cp -r THIRDPARTY/All/* /thirdparty && \
-    cp -r THIRDPARTY/Linux/x86_64/* /thirdparty && \
+    if [ -d "THIRDPARTY/Linux/$(uname -m)" ]; then \
+        cp -r THIRDPARTY/Linux/$(uname -m)/* /thirdparty; \
+    fi && \
+    rm -rf THIRDPARTY && \
     chmod -R +x /thirdparty
-ENV PATH="/thirdparty/LuciPHOr2:/thirdparty/MSGFPlus:/thirdparty/Sirius:/thirdparty/ThermoRawFileParser:/thirdparty/Comet:/thirdparty/Fido:/thirdparty/MaRaCluster:/thirdparty/MyriMatch:/thirdparty/OMSSA:/thirdparty/Percolator:/thirdparty/SpectraST:/thirdparty/XTandem:/thirdparty/crux:${PATH}"
+ENV PATH="/thirdparty/LuciPHOr2:/thirdparty/MSGFPlus:/thirdparty/Sirius:/thirdparty/ThermoRawFileParser:/thirdparty/Comet:/thirdparty/Fido:/thirdparty/MaRaCluster:/thirdparty/MyriMatch:/thirdparty/OMSSA:/thirdparty/Percolator:/thirdparty/SpectraST:/thirdparty/XTandem:/thirdparty/crux:/thirdparty/Sage:${PATH}"
 
-# Build OpenMS and pyOpenMS.
-FROM setup-build-system AS compile-openms
+# Configure OpenMS and pyOpenMS.
+FROM setup-build-system AS configure-openms
 WORKDIR /
 
-# Set up build directory.
-RUN mkdir /openms-build
+# Configure under plain bash, with the system cmake, so that the C++
+# dependencies resolve to the Ubuntu packages and never to libraries of the
+# mamba environment (whose libstdc++ or yaml-cpp can differ from the system
+# compiler's). pyOpenMS gets the environment's interpreter explicitly.
+# Options a version does not know are ignored with a warning, so one command
+# serves 3.5 and 3.6+: OPENMS_USE_VCPKG=OFF takes the system packages,
+# WITH_UV=OFF builds against this Python instead of a uv-made venv, and
+# WITH_THERMO_RAW=OFF leaves out the .NET Thermo reader (FileConverter converts
+# Thermo RAW files with ThermoRawFileParser and mono, installed below).
+SHELL ["/bin/bash", "-c"]
+RUN cmake -S /OpenMS -B /openms-build \
+        -DCMAKE_BUILD_TYPE='Release' \
+        -DCMAKE_PREFIX_PATH='/usr/;/usr/local' \
+        -DHAS_XSERVER=OFF \
+        -DBOOST_USE_STATIC=OFF \
+        -DOPENMS_USE_VCPKG=OFF \
+        -DWITH_UV=OFF \
+        -DWITH_THERMO_RAW=OFF \
+        -DPYOPENMS=ON \
+        -DPY_MEMLEAK_DISABLE=On \
+        -DPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python
+
+# Build OpenMS and pyOpenMS.
+FROM configure-openms AS compile-openms
 WORKDIR /openms-build
 
-# Configure.
-RUN /bin/bash -c "cmake -DCMAKE_BUILD_TYPE='Release' -DCMAKE_PREFIX_PATH='/OpenMS/contrib-build/;/usr/;/usr/local' -DHAS_XSERVER=OFF -DBOOST_USE_STATIC=OFF -DPYOPENMS=ON -DWITH_UV=OFF -DPYOPENMS_PREPARE_WHEEL_REPAIR=ON -DPython_EXECUTABLE=/root/miniforge3/envs/streamlit-env/bin/python ../OpenMS -DPY_MEMLEAK_DISABLE=On"
+# Build TOPP tools.
+RUN make -j4 TOPP
 
-# Build TOPP tools and clean up.
-RUN make -j4 OpenSwathAssayGenerator OpenSwathDecoyGenerator OpenSwathWorkflow
-RUN rm -rf src doc CMakeFiles
+# pyOpenMS runs in the mamba environment's Python, whose OpenSSL is newer than
+# Ubuntu's. Loading libOpenMS (which links the system libcurl) next to it mixes
+# the two libssl/libcrypto builds and the import fails ("OPENSSL_3.3.0 not
+# found"); pyOpenMS 3.6 imports itself during the build to generate its stubs.
+# Taking the environment's libraries first keeps one OpenSSL in the process;
+# they are newer and keep the symbol versions the system libraries ask for.
+ENV LD_LIBRARY_PATH="/root/miniforge3/envs/streamlit-env/lib"
 
-# Build pyOpenMS and produce a repairable wheel using the CMake packaging target.
-RUN make -j4 pyopenms
-WORKDIR /openms-build/pyOpenMS
-
-# Ensure wheel tooling is available in the build Python, then package and repair the wheel.
-RUN set -eux; \
-    PY=/root/miniforge3/envs/streamlit-env/bin/python; \
-    echo "Installing wheel tooling into build python..."; \
-    $PY -m pip install --no-cache-dir -U pip build auditwheel py-build-cmake; \
-    cd /openms-build; \
-    echo "Invoking CMake pyopenms_wheel target to package wheel (will continue on error)..."; \
-    cmake --build . --target pyopenms_wheel || true; \
-    echo "Wheel directory listing (pyopenms_wheels):"; ls -la pyopenms_wheels || true; \
-    if compgen -G "pyopenms_wheels/*.whl" > /dev/null; then \
-        echo "Found built wheel(s) in pyopenms_wheels, repairing with auditwheel..."; \
-        mkdir -p /openms-build/pyopenms_wheels_repaired; \
-        auditwheel repair -w /openms-build/pyopenms_wheels_repaired pyopenms_wheels/*.whl; \
-        echo "Repaired wheels:"; ls -la /openms-build/pyopenms_wheels_repaired; \
-        if compgen -G "/openms-build/pyopenms_wheels_repaired/*.whl" > /dev/null; then \
-            echo "Installing repaired wheel(s) into build python..."; \
-            for f in /openms-build/pyopenms_wheels_repaired/*.whl; do $PY -m pip install "$f"; done; \
-        else \
-            echo "ERROR: auditwheel did not produce any repaired wheels"; \
-            ls -la /openms-build/pyopenms_wheels_repaired || true; \
-            exit 1; \
-        fi; \
-    elif compgen -G "pyOpenMS/dist/*.whl" > /dev/null; then \
-        echo "Found legacy dist wheel, installing..."; \
-        $PY -m pip install pyOpenMS/dist/*.whl; \
+# Build the pyOpenMS wheel (pyopenms_wheel from 3.6 on, pyopenms before).
+RUN if grep -q pyopenms_wheel /OpenMS/src/CMakeLists.txt; then \
+        make -j4 pyopenms_wheel && mkdir -p /pyopenms-wheel && cp pyopenms_wheels/*.whl /pyopenms-wheel/; \
     else \
-        echo "No wheel produced; falling back to development install (editable)"; \
-        cd /openms-build/pyOpenMS; \
-        echo "Installing editable pyopenms into build python..."; \
-        $PY -m pip install -e . --no-cache-dir --no-binary=pyopenms; \
-        echo "Editable install completed."; \
-    fi
+        make -j4 pyopenms && mkdir -p /pyopenms-wheel && cp pyOpenMS/dist/*.whl /pyopenms-wheel/; \
+    fi && ls /pyopenms-wheel
 
-# Check to see if pyOpenMS can be imported and print its version.
-RUN set -eux; \
-    export LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms-build/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"; \
-    source /root/miniforge3/bin/activate streamlit-env; \
-    python -c "import pyopenms; print('pyOpenMS version:', pyopenms.__version__)"
+SHELL ["mamba", "run", "-n", "streamlit-env", "/bin/bash", "-c"]
+RUN pip install /pyopenms-wheel/*.whl && rm -rf /pyopenms-wheel
 
 # Install other dependencies (excluding pyopenms)
-COPY requirements.txt ./requirements.txt 
+COPY requirements.txt ./requirements.txt
 RUN grep -Ev '^pyopenms([=<>!~].*)?$' requirements.txt > requirements_cleaned.txt && mv requirements_cleaned.txt requirements.txt
 RUN pip install -r requirements.txt
-
-# Check to see if the same pyOpenMS version is still installed after installing other dependencies.
-RUN set -eux; \
-    export LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms-build/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"; \
-    source /root/miniforge3/bin/activate streamlit-env; \
-    python -c "import pyopenms; print('pyOpenMS version after installing other dependencies:', pyopenms.__version__)"
-
 
 WORKDIR /
 RUN mkdir openms
@@ -188,7 +197,7 @@ ENV PATH="/openms/bin/:${PATH}"
 
 # Copy TOPP tools bin directory, add to PATH.
 RUN cp -r openms-build/lib /openms/lib
-ENV LD_LIBRARY_PATH="${STREAMLIT_ENV_PREFIX}/lib:/openms/lib"
+ENV LD_LIBRARY_PATH="/openms/lib/:/root/miniforge3/envs/streamlit-env/lib"
 
 # Copy share folder, add to PATH, remove source directory.
 RUN cp -r OpenMS/share/OpenMS /openms/share
@@ -197,6 +206,11 @@ ENV OPENMS_DATA_PATH="/openms/share/"
 
 # Remove build directory.
 RUN rm -rf openms-build
+
+# Check that pyOpenMS loads and finds its data, and that the TOPP tools run.
+RUN python -c "import pyopenms; print('pyOpenMS', pyopenms.__version__, pyopenms.EmpiricalFormula('C6H12O6').getMonoWeight())" \
+    && test -x /openms/bin/FileInfo \
+    && ! ldd /openms/bin/FileInfo | grep 'not found'
 
 # Prepare and run streamlit app.
 FROM compile-openms AS run-app
@@ -212,6 +226,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends redis-server ng
 RUN apt-get update && apt-get install -y --no-install-recommends mono-complete \
     && rm -rf /var/lib/apt/lists/* \
     && mono --version
+
+# Command line tools an app installs from conda-forge (SIRIUS, for example),
+# one package spec per line in its optional conda-requirements.txt. Python
+# packages stay in requirements.txt. The glob lets the file be absent; this
+# step comes after the OpenMS build, so changing the list never rebuilds it.
+COPY requirements.txt conda-requirements.tx[t] /tmp/app-env/
+# A line ending in `# [x86_64]` or `# [aarch64]` is installed only on that
+# machine (`uname -m`), for tools conda-forge builds for one architecture.
+RUN touch /tmp/app-env/conda-requirements.txt \
+    && awk -v arch="$(uname -m)" ' \
+        /#[[:space:]]*\[[a-z0-9_]+\][[:space:]]*$/ { tag = $0; sub(/.*\[/, "", tag); sub(/\].*/, "", tag); if (tag != arch) next } \
+        { sub(/#.*/, ""); if ($0 ~ /[^[:space:]]/) print }' \
+        /tmp/app-env/conda-requirements.txt > /tmp/app-env/conda-specs.txt \
+    && if [ -s /tmp/app-env/conda-specs.txt ]; then \
+        mamba install -y -n streamlit-env -c conda-forge --file /tmp/app-env/conda-specs.txt; \
+    fi && rm -rf /tmp/app-env
 
 # Create Redis data directory. Default 0755 root-owned is enough: the docker
 # entrypoint runs as root (can write regardless of mode), and the apptainer
@@ -245,7 +275,6 @@ COPY settings.json /app/settings.json
 COPY default-parameters.json /app/default-parameters.json
 COPY presets.json /app/presets.json
 COPY data /app/data
-
 # Set environment variable for Redeem pretrain models
 ENV REDEEM_PRETRAINED_MODELS_DIR=/app/data/pretrained_models
 
@@ -288,14 +317,21 @@ RUN jq '.online_deployment = true' settings.json > tmp.json && mv tmp.json setti
 RUN jq '.local_data_dir = "/mounted-data"' settings.json > tmp.json && mv tmp.json settings.json
 
 # Download the Windows installer of the latest release, if it has one.
-# ARG declared here (not at the top) — otherwise the per-run token busts the cache.
-ARG GITHUB_TOKEN
-RUN if [ -n "$GITHUB_TOKEN" ]; then \
-        echo "GITHUB_TOKEN is set, proceeding to download the release asset..."; \
-        gh release download -R ${GITHUB_USER}/${GITHUB_REPO} -p "*-Setup.exe" -O /app/OpenMS-App-Setup.exe \
+# The token arrives as a BuildKit secret (`--secret id=github_token,env=GITHUB_TOKEN`),
+# so it is never written to the image or its build cache. INSTALLER_REFRESH
+# (CI passes the run id) re-runs this step on every build, as the token used to.
+ARG INSTALLER_REFRESH
+# Declared again: a build argument does not reach a later stage on its own.
+ARG GITHUB_USER
+ARG GITHUB_REPO
+RUN --mount=type=secret,id=github_token \
+    repo="${GITHUB_USER:-$(jq -r '."github-user"' settings.json)}/${GITHUB_REPO:-$(jq -r '."repository-name"' settings.json)}"; \
+    if [ -s /run/secrets/github_token ]; then \
+        echo "GitHub token secret is set, proceeding to download the release asset..."; \
+        GH_TOKEN="$(cat /run/secrets/github_token)" gh release download -R "$repo" -p "*-Setup.exe" -O /app/OpenMS-App-Setup.exe \
             || echo "The latest release has no Windows installer, skipping."; \
     else \
-        echo "GITHUB_TOKEN is not set, skipping the release asset download."; \
+        echo "No github_token secret, skipping the release asset download."; \
     fi
 
 
