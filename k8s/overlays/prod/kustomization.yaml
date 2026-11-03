@@ -17,6 +17,9 @@ images:
     newName: ghcr.io/openms/opendiakiosk
     newTag: v-1.1-full
 
+# This app's own values. k8s/base and k8s/components are the template's and
+# arrive through the template sync; everything this app sets for itself is a
+# patch here (docs/kubernetes-deployment.md, "App values belong in the overlay").
 patches:
   - target:
       kind: IngressRoute
@@ -28,9 +31,36 @@ patches:
       - op: replace
         path: /spec/routes/0/services/0/name
         value: opendiakiosk-streamlit
+      - op: replace
+        path: /spec/routes/1/match
+        value: (Host(`opendia.webapps.openms.de`) || Host(`opendia.webapps.openms.org`)) && PathPrefix(`/sync`)
+      - op: replace
+        path: /spec/routes/1/services/0/name
+        value: opendiakiosk-sync
+  # The workspace share (deploy.k8s.storage in app.yaml).
+  - target:
+      kind: PersistentVolumeClaim
+      name: workspaces-manila-pvc
+    patch: |
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 200Gi
   - target:
       kind: Deployment
       name: streamlit
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "redis://opendiakiosk-redis:6379/0"
+      # Streamlit size as deployed, larger than the tier's 4Gi limit.
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {memory: 512Mi, cpu: 500m}
+          limits: {memory: 8Gi, cpu: "4"}
+  - target:
+      kind: Deployment
+      name: sync
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
@@ -42,3 +72,10 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
         value: "redis://opendiakiosk-redis:6379/0"
+      # Worker size as deployed: a small request with room to grow to the
+      # tier's 180Gi, not the tier's Guaranteed 180Gi request.
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {memory: 2Gi, cpu: "2"}
+          limits: {memory: 180Gi, cpu: "20"}

@@ -12,28 +12,27 @@ spec:
   jobTemplate:
     spec:
       # concurrencyPolicy above is Forbid, so an Active Job suppresses every
-      # later schedule. Without a deadline, one run wedged on the workspaces
-      # mount silently blocks cleanup forever. The deadline forces the Job to
-      # Failed, which is terminal, so the next night runs. The in-container
-      # `timeout` below covers the reachable-but-slow cases.
+      # later schedule. Without a deadline, one run wedged on the shared
+      # workspaces mount - an NFS server restart is routine - silently blocks
+      # cleanup forever, with no error surface. The deadline forces the Job to
+      # Failed, which is terminal, so the next night runs.
+      # Generous: the cleanup walks every workspace over the network.
+      #
+      # Belt and braces with the in-container `timeout` below, because this
+      # deadline alone does not close the hole it names. It is a control-plane
+      # bound applied to a syscall-level hang: a pod stuck in D-state on a
+      # `hard` mount cannot terminate, and on recent Kubernetes the Job's
+      # terminal Failed condition is only added once every pod has actually
+      # terminated (FailureTarget first), so Forbid can still suppress the next
+      # schedule. The `timeout` inside the container covers the
+      # reachable-but-slow cases without depending on the cluster version.
       activeDeadlineSeconds: 3600
       template:
         metadata:
           labels:
             component: cleanup
-            volume-group: kiosk
         spec:
           restartPolicy: OnFailure
-          affinity:
-            podAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                - labelSelector:
-                    matchExpressions:
-                      - key: volume-group
-                        operator: In
-                        values:
-                          - kiosk
-                  topologyKey: kubernetes.io/hostname
           containers:
             - name: cleanup
               image: openms-streamlit
