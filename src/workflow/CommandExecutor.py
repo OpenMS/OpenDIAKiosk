@@ -524,6 +524,9 @@ class CommandExecutor:
             command += [str(x) for x in value]
         elif isinstance(value, str) and "\n" in value:
             command += [entry for entry in value.split("\n") if entry != ""]
+        elif isinstance(value, bool):
+            # OpenMS reads a boolean as "true"/"false", not "True"
+            command += [str(value).lower()]
         else:
             command += [str(value)]
 
