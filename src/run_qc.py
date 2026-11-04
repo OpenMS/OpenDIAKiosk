@@ -9,7 +9,9 @@ q-value cutoff) is enough for four run-level checks:
 - fragment and precursor mass error per run (Skyline's Mass Errors),
 - peak width per run (Spectronaut's run QC),
 - detections per run and how many runs each precursor is found in
-  (Skyline's Detections plots).
+  (Skyline's Detections plots),
+- identifications over retention time and ion mobility per run (DIA-NN's
+  per-run QC report).
 
 Streamlit-free.
 """
@@ -52,16 +54,19 @@ def identified_peaks(osw_path: str | Path, max_qvalue: float = 0.01) -> pd.DataF
     Without SCORE_MS2 (an unscored file) every precursor's largest peak in a run
     is used instead, and ``scored`` is False on all rows. Columns: run,
     precursor, measured RT, library RT, normalized RT, peak width, fragment and
-    precursor mass error (mean absolute ppm, NaN when not scored), scored.
+    precursor mass error (mean absolute ppm, NaN when not scored), ion
+    mobility (NaN without ion mobility data), scored.
     """
     tables = _tables(osw_path)
     scored = "SCORE_MS2" in tables
+    feature = _columns(osw_path, "FEATURE")
     ms2 = _columns(osw_path, "FEATURE_MS2") if "FEATURE_MS2" in tables else set()
     ms1 = _columns(osw_path, "FEATURE_MS1") if "FEATURE_MS1" in tables else set()
     select = [
         "r.FILENAME AS filename",
         "f.PRECURSOR_ID AS precursor",
         "f.EXP_RT AS rt",
+        "f.EXP_IM AS im" if "EXP_IM" in feature else "NULL AS im",
         "p.LIBRARY_RT AS library_rt",
         "f.NORM_RT AS norm_rt",
         "f.RIGHT_WIDTH - f.LEFT_WIDTH AS width",
@@ -97,8 +102,10 @@ def identified_peaks(osw_path: str | Path, max_qvalue: float = 0.01) -> pd.DataF
     if df["run"].nunique() != df["filename"].nunique():
         df["run"] = df["filename"]
     df["scored"] = scored
-    for col in ["rt", "library_rt", "norm_rt", "width", "ms2_ppm", "ms1_ppm", "area"]:
+    for col in ["rt", "im", "library_rt", "norm_rt", "width", "ms2_ppm", "ms1_ppm", "area"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+    # OpenSwath writes -1 (or 0) when the data has no ion mobility
+    df.loc[df["im"] <= 0, "im"] = np.nan
     return df.drop(columns=["filename"]).sort_values(["run", "rt"]).reset_index(drop=True)
 
 
@@ -233,4 +240,52 @@ def detections_figure(peaks: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="runs", dtick=1, row=1, col=2)
     fig.update_yaxes(title_text="precursors", row=1, col=1)
     fig.update_layout(height=380, title="Detections")
+    return fig
+
+
+def identifications_over(peaks: pd.DataFrame, column: str, bins: int = 40) -> pd.DataFrame:
+    """Identified precursors per bin of ``column`` (e.g. ``rt`` or ``im``), per run.
+
+    All runs share the same bin edges, so the curves are comparable. Returns
+    one row per run and bin: run, bin centre, identifications. Empty when no
+    peak has a value in ``column``.
+    """
+    data = peaks.dropna(subset=[column])
+    if data.empty:
+        return pd.DataFrame(columns=["run", column, "identifications"])
+    low, high = float(data[column].min()), float(data[column].max())
+    if high <= low:
+        high = low + 1.0
+    edges = np.linspace(low, high, bins + 1)
+    centres = (edges[:-1] + edges[1:]) / 2
+    frames = []
+    for run, group in data.groupby("run", sort=True):
+        counts, _ = np.histogram(group[column], bins=edges)
+        frames.append(pd.DataFrame({"run": run, column: centres, "identifications": counts}))
+    return pd.concat(frames, ignore_index=True)
+
+
+def identifications_over_figure(peaks: pd.DataFrame, column: str = "rt", bins: int = 40) -> go.Figure:
+    """Identifications along the gradient (``rt``) or the mobility range (``im``), one line per run.
+
+    DIA-NN's per-run QC report draws the same: a run whose curve is lower in
+    one region lost identifications there (spray problem, clogged column,
+    shifted gradient), which a total count per run hides.
+    """
+    counts = identifications_over(peaks, column, bins)
+    axis = {"rt": "retention time (s)", "im": "ion mobility"}.get(column, column)
+    fig = go.Figure()
+    for run, group in counts.groupby("run", sort=True):
+        fig.add_trace(
+            go.Scatter(
+                x=group[column], y=group["identifications"], mode="lines", name=run,
+                line={"shape": "hvh", "width": 1.5},
+                hovertemplate=run + "<br>%{x:.2f}: %{y:,} precursors<extra></extra>",
+            )
+        )
+    what = "retention time" if column == "rt" else "ion mobility" if column == "im" else column
+    fig.update_layout(
+        title=f"Identifications over {what}", xaxis_title=axis,
+        yaxis_title="identified precursors per bin", height=380, legend_title="run",
+    )
     return fig

@@ -22,6 +22,7 @@ from src.common.common import page_setup, follow_app_theme
 from src.common.insight_tables import show_insight_table
 from src.run_qc import (
     detections_figure,
+    identifications_over_figure,
     identified_peaks,
     per_run_box_figure,
     rt_calibration_figure,
@@ -988,6 +989,22 @@ if selected_osw:
         )
 
         st.plotly_chart(follow_app_theme(detections_figure(qc_peaks)), use_container_width=True)
+
+        has_im = qc_peaks["im"].notna().any()
+        ids_col_a, ids_col_b = st.columns(2) if has_im else (st.container(), None)
+        ids_col_a.plotly_chart(
+            follow_app_theme(identifications_over_figure(qc_peaks, "rt")), use_container_width=True
+        )
+        if has_im:
+            ids_col_b.plotly_chart(
+                follow_app_theme(identifications_over_figure(qc_peaks, "im")), use_container_width=True
+            )
+        st.caption(
+            "Identified precursors along the gradient"
+            + (" and the ion mobility range" if has_im else "")
+            + ", one line per run (as in DIA-NN's run QC report). A run that dips in one region "
+            "lost identifications there, for example from an unstable spray or a shifted gradient."
+        )
 
         rt_col_a, rt_col_b = st.columns(2)
         rt_col_a.plotly_chart(follow_app_theme(rt_calibration_figure(qc_peaks)), use_container_width=True)

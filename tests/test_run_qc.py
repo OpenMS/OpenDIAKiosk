@@ -9,6 +9,8 @@ from src.run_qc import (
     detections,
     detections_figure,
     identified_peaks,
+    identifications_over,
+    identifications_over_figure,
     per_run_box_figure,
     rt_calibration_figure,
     rt_fit,
@@ -106,3 +108,36 @@ def test_figures_render(osw):
     assert len(detections_figure(peaks).data) == 2
     assert len(per_run_box_figure(peaks, "ms1_ppm", "t", "y").data) == 1  # run_b has no MS1 scores
     assert rt_residual_figure(peaks).layout.shapes
+
+
+def test_identified_peaks_has_no_ion_mobility_without_exp_im(osw):
+    assert identified_peaks(osw)["im"].isna().all()
+
+
+def test_identified_peaks_reads_ion_mobility_and_drops_placeholders(osw):
+    with sqlite3.connect(osw) as conn:
+        conn.execute("ALTER TABLE FEATURE ADD COLUMN EXP_IM REAL")
+        conn.execute("UPDATE FEATURE SET EXP_IM = 0.8 + ID / 100.0")
+        conn.execute("UPDATE FEATURE SET EXP_IM = -1 WHERE ID = 21")
+    peaks = identified_peaks(osw).set_index(["run", "precursor"])
+    assert peaks.loc[("run_a", 1), "im"] == pytest.approx(0.91)
+    assert np.isnan(peaks.loc[("run_b", 1), "im"])
+
+
+def test_identifications_over_rt_shares_bins_across_runs(osw):
+    peaks = identified_peaks(osw)
+    counts = identifications_over(peaks, "rt", bins=4)
+    # edges 120..160 in four bins: run_a has 120, 140, 160; run_b has 121, 141
+    a = counts[counts["run"] == "run_a"]["identifications"].tolist()
+    b = counts[counts["run"] == "run_b"]["identifications"].tolist()
+    assert a == [1, 0, 1, 1]
+    assert b == [1, 0, 1, 0]
+    assert counts.groupby("run")["rt"].apply(tuple).nunique() == 1
+    assert counts["identifications"].sum() == len(peaks)
+
+
+def test_identifications_over_is_empty_without_values(osw):
+    peaks = identified_peaks(osw)
+    assert identifications_over(peaks, "im").empty
+    assert len(identifications_over_figure(peaks, "im").data) == 0
+    assert len(identifications_over_figure(peaks, "rt").data) == 2
