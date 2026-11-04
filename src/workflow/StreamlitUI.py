@@ -61,6 +61,7 @@ from src.workflow.ParameterManager import (
     ParameterManager,
     TransientParameterFileError,
 )
+from src.workflow.parameter_names import display_name as _display_name
 
 
 def _txt(value) -> str:
@@ -1557,6 +1558,26 @@ class StreamlitUI:
             # stubbed out; re-raise rather than fall through to the write.
             raise
 
+    def _topp_tool_unavailable(self, topp_tool_name: str) -> None:
+        """Say why a TOPP tool's parameters cannot be shown: missing, or failing."""
+        from src.workflow.ParameterManager import INI_TOOL_MISSING
+
+        reason = getattr(self.parameter_manager, "ini_errors", {}).get(
+            topp_tool_name, INI_TOOL_MISSING
+        )
+        if reason == INI_TOOL_MISSING:
+            st.error(
+                f"TOPP tool **'{topp_tool_name}'** not found. The OpenMS TOPP "
+                "tools are not installed here, or not on the PATH of this app."
+            )
+            return
+        st.error(
+            f"TOPP tool **'{topp_tool_name}'** is installed but could not "
+            "write its parameters, so they cannot be shown."
+        )
+        with st.expander("Tool output"):
+            st.code(reason, language=None)
+
 
     def input_TOPP(
         self,
@@ -1600,7 +1621,7 @@ class StreamlitUI:
         ini_file_path = Path(self.parameter_manager.ini_dir, f"{topp_tool_name}.ini")
         ini_existed = ini_file_path.exists()
         if not self.parameter_manager.create_ini(topp_tool_name):
-            st.error(f"TOPP tool **'{topp_tool_name}'** not found.")
+            self._topp_tool_unavailable(topp_tool_name)
             return
         if not ini_existed:
             # update custom defaults if necessary
@@ -1820,16 +1841,22 @@ class StreamlitUI:
         def show_subsection_header(section: str, display_subsections: bool):
             # Display section name and help text (section description) if required
             if section and display_subsections:
+                description = section_descriptions.get(section)
+                friendly = _display_name(topp_tool_name, section)
+                if friendly:
+                    # The app's own heading; the help keeps the tool's name
+                    st.markdown(
+                        f"**{friendly['name']}**",
+                        help=(friendly["help"] or description or "")
+                        + f"\n\nSection `{section}` of {topp_tool_name}.",
+                    )
+                    return
                 parts = section.split(":")
                 st.markdown(
                     ":".join(parts[:-1])
                     + (":" if len(parts) > 1 else "")
                     + f"**{parts[-1]}**",
-                    help=(
-                        section_descriptions[section]
-                        if section in section_descriptions
-                        else None
-                    ),
+                    help=description,
                 )
 
         def _extract_file_types(valid_strings: list[str]) -> list[str]:
@@ -1917,7 +1944,24 @@ class StreamlitUI:
 
         def display_TOPP_params(params: dict, num_cols):
             """Displays individual TOPP parameters in given number of columns"""
-            cols = st.columns(num_cols)
+
+            def is_text_area(p):
+                value = p["value"]
+                if isinstance(value, str) and "\n" in value:
+                    return True
+                return isinstance(value, list) and not p["valid_strings"]
+
+            # Free-text lists (multi-line text areas) come after the other
+            # inputs of a section, so every row holds inputs of one height and
+            # they can line up at the bottom: a label that wraps onto a second
+            # line no longer pushes its input below its neighbours'.
+            text_areas = [p for p in params if is_text_area(p)]
+            params = [p for p in params if not is_text_area(p)] + text_areas
+
+            def new_row():
+                return st.columns(num_cols, vertical_alignment="bottom")
+
+            cols = new_row()
             i = 0
             for p in params:
                 # get key and name (p['key'] is normalized to str)
@@ -1973,7 +2017,6 @@ class StreamlitUI:
                         p["value"] = p["value"].split("\n")
                     # bools
                     if isinstance(p["value"], bool):
-                        cols[i].markdown("##")
                         cols[i].checkbox(
                             name,
                             value=(
@@ -2085,7 +2128,7 @@ class StreamlitUI:
                     i += 1
                     if i == num_cols:
                         i = 0
-                        cols = st.columns(num_cols)
+                        cols = new_row()
                 except Exception as e:
                     cols[i].error(f"Error in parameter **{p['name']}**.")
                     print('Error parsing "' + p["name"] + '": ' + str(e))
@@ -2238,6 +2281,7 @@ class StreamlitUI:
                 continue
             entry = param.getEntry(key)
             name = _txt(key).split(":1:")[1]
+            friendly = _display_name(topp_tool_name, name, tool_instance_name)
             default = defaults.get(name, entry.value)
             value = user.get(name, default)
             if isinstance(entry.value, list):
@@ -2247,9 +2291,15 @@ class StreamlitUI:
             rows.append(
                 {
                     "name": name,
-                    "label": _txt(entry.name),
+                    "label": friendly["name"] if friendly else _txt(entry.name),
+                    "friendly": bool(friendly),
                     "section": ":".join(name.split(":")[:-1]),
-                    "description": _txt(entry.description),
+                    "description": (
+                        (friendly["help"] or _txt(entry.description))
+                        if friendly
+                        else _txt(entry.description)
+                    ),
+                    "tool_description": _txt(entry.description),
                     "value": value,
                     "default": default,
                     "valid_strings": _valid_strings(entry),
@@ -2298,7 +2348,9 @@ class StreamlitUI:
             r
             for r in rows
             if all(
-                w in f"{r['name']} {r['description']}".lower() for w in words
+                w
+                in f"{r['label']} {r['name']} {r['description']} {r['tool_description']}".lower()
+                for w in words
             )
             and (not only_changed or not same(r["value"], r["default"]))
         ]
@@ -2378,13 +2430,22 @@ class StreamlitUI:
                 st.session_state[k] = as_widget_value(r, v)
 
         c_label, c_value, c_actions = st.columns([5, 4, 3], vertical_alignment="center")
-        section = f":gray[{row['section']}:]" if row["section"] else ""
         marker = " :orange[●]" if changed else ""
-        c_label.markdown(
-            f"{section}**{row['label']}**{marker}"
-            + (" :gray[· advanced]" if row["advanced"] else ""),
-            help=row["description"] or None,
-        )
+        if row.get("friendly"):
+            # The app's name first, the tool's own name beside it, so both
+            # read the same as on the page and in the tool's documentation.
+            c_label.markdown(
+                f"**{row['label']}**{marker} :gray[· {row['name']}]"
+                + (" :gray[· advanced]" if row["advanced"] else ""),
+                help=row["description"] or None,
+            )
+        else:
+            section = f":gray[{row['section']}:]" if row["section"] else ""
+            c_label.markdown(
+                f"{section}**{row['label']}**{marker}"
+                + (" :gray[· advanced]" if row["advanced"] else ""),
+                help=row["description"] or None,
+            )
         if changed:
             c_label.caption(f"default: {_short(default)}")
 

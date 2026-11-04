@@ -13,6 +13,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ParameterManager.ini_errors value for a TOPP tool that is not on PATH.
+INI_TOOL_MISSING = "not on PATH"
+# How much of a failing tool's output ParameterManager.ini_errors keeps.
+INI_ERROR_LINES = 20
+
 
 def bool_param_paths_from_param_xml_ini(ini_path: Path, tool_stem: str) -> set[str]:
     """
@@ -281,7 +286,9 @@ class ParameterManager:
         self.ini_dir = Path(workflow_dir, "ini")
         self.ini_dir.mkdir(parents=True, exist_ok=True)
         self.defaults_ini_dir = self.ini_dir / ".defaults"
-        self.defaults_ini_dir.mkdir(parents=True, exist_ok=True)
+        # Why create_ini() last failed for a tool: INI_TOOL_MISSING when the
+        # executable is not on PATH, else what the tool printed.
+        self.ini_errors: dict[str, str] = {}
         self.params_file = Path(workflow_dir, "params.json")
         self.param_prefix = f"{workflow_dir.stem}-param-"
         self.topp_param_prefix = f"{workflow_dir.stem}-TOPP-"
@@ -342,7 +349,8 @@ class ParameterManager:
             tool: Name of the TOPP tool (e.g., "CometAdapter")
 
         Returns:
-            True if ini file exists (created or already existed), False if creation failed
+            True if ini file exists (created or already existed), False if creation
+            failed; ``self.ini_errors[tool]`` then says why.
         """
         ini_path = Path(self.ini_dir, tool + ".ini")
         if ini_path.exists() and not self._ini_is_stale(tool, ini_path):
@@ -356,23 +364,49 @@ class ParameterManager:
         return True
 
     def _write_ini(self, tool: str, ini_path: Path) -> bool:
-        """Write a TOPP tool INI file via `<tool> -write_ini <path>`."""
+        """Write a TOPP tool INI file via `<tool> -write_ini <path>`.
+
+        On failure ``self.ini_errors[tool]`` says why: INI_TOOL_MISSING when
+        the executable is not on PATH, else what the tool printed.
+        """
         # Written next to the target and moved into place, so a failed
         # -write_ini leaves the previous file as it was.
         ini_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = ini_path.with_name(f".{ini_path.stem}.{uuid.uuid4().hex}.ini")
+        self.ini_errors.pop(tool, None)
         try:
-            completed = subprocess.run(
-                [tool, "-write_ini", str(tmp_path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if completed.returncode != 0 or not tmp_path.exists():
+            try:
+                completed = subprocess.run(
+                    [tool, "-write_ini", str(tmp_path)],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    check=False,
+                )
+            except FileNotFoundError:
+                self.ini_errors[tool] = INI_TOOL_MISSING
                 return False
-            os.replace(tmp_path, ini_path)
-            return True
-        except (FileNotFoundError, OSError):
+            except OSError as e:
+                # Present but not runnable (no execute permission, wrong
+                # architecture, a broken interpreter line).
+                self.ini_errors[tool] = f"{tool} could not be started: {e}"
+                return False
+            if completed.returncode == 0 and tmp_path.exists():
+                os.replace(tmp_path, ini_path)
+                return True
+            output = "\n".join(
+                part.strip()
+                for part in (completed.stderr, completed.stdout)
+                if part and part.strip()
+            )
+            lines = output.splitlines()[-INI_ERROR_LINES:]
+            self.ini_errors[tool] = (
+                f"{tool} -write_ini exited with code {completed.returncode}"
+                + (":\n" + "\n".join(lines) if lines else " and printed nothing.")
+            )
+            logger.warning("Could not write %s: %s", ini_path, self.ini_errors[tool])
+            return False
+        except OSError:
             return False
         finally:
             tmp_path.unlink(missing_ok=True)
