@@ -8,6 +8,8 @@ from .Logger import Logger
 from .ParameterManager import ParameterManager, bool_param_paths_from_param_xml_ini
 from .settings_io import load_settings, detect_cpu_quota
 from .vendor_files import vendor_format
+from .progress import RunProgress, read_progress, failure_context, OUTPUT_TAIL
+from collections import deque
 import sys
 import importlib.util
 import json
@@ -34,6 +36,8 @@ class CommandExecutor:
         self.parameter_manager = parameter_manager
         # Memoised thread budget, resolved lazily by _get_max_threads().
         self._max_threads = None
+        # Per-file progress of run_topp() calls, read by the Run page
+        self.progress = RunProgress(Path(workflow_dir))
 
     def _get_max_threads(self) -> int:
         """
@@ -119,7 +123,9 @@ class CommandExecutor:
         except AttributeError:
             return os.cpu_count() or 1
 
-    def run_multiple_commands(self, commands: list[str], cwd: str | None = None) -> bool:
+    def run_multiple_commands(
+        self, commands: list[str], step: int = None, cwd: str | None = None
+    ) -> bool:
         """
         Executes multiple shell commands concurrently in separate threads.
 
@@ -131,6 +137,8 @@ class CommandExecutor:
         Args:
             commands (list[str]): A list where each element is a list representing
                                         a command and its arguments.
+            step (int, optional): The progress step these commands belong to
+                (from RunProgress.start_step()); command i is its file i.
 
         Returns:
             bool: True if all commands succeeded, False if any failed.
@@ -151,9 +159,18 @@ class CommandExecutor:
         lock = threading.Lock()
         semaphore = threading.Semaphore(parallel_commands)
 
-        def run_and_track(cmd):
+        def run_and_track(i, cmd):
             with semaphore:
-                success = self.run_command(cmd, cwd=cwd)
+                try:
+                    if step is None:
+                        success = self.run_command(cmd, cwd=cwd)
+                    else:
+                        success = self.run_command(cmd, task=(step, i), cwd=cwd)
+                except Exception as e:
+                    # e.g. the tool is not installed. A thread that dies here
+                    # would add no result, and the step would count as passed.
+                    self.logger.log(f"ERROR: {cmd[0]}: {e}", 0)
+                    success = False
                 with lock:
                     results.append(success)
 
@@ -161,8 +178,8 @@ class CommandExecutor:
         threads = []
 
         # Start a new thread for each command
-        for cmd in commands:
-            thread = threading.Thread(target=run_and_track, args=(cmd,))
+        for i, cmd in enumerate(commands):
+            thread = threading.Thread(target=run_and_track, args=(i, cmd))
             thread.start()
             threads.append(thread)
 
@@ -179,13 +196,19 @@ class CommandExecutor:
 
         return all(results)
 
-    def run_command(self, command: list[str], cwd: str | None = None) -> bool:
+    def run_command(self, command: list[str], task: tuple = None, cwd=None) -> bool:
         """
         Executes a specified shell command and logs its execution details.
 
         Args:
             command (list[str]): The shell command to execute, provided as a list of strings.
-            cwd (str | None): Optional working directory for the subprocess only.
+            task (tuple, optional): (step, index) of this command in the run
+                progress (see run_topp()). Its start, end and, on failure, exit
+                code and output are recorded there, and a failure is logged
+                with its context ("While running X on file 2 of 3 (a.mzML)").
+            cwd (str | Path, optional): Working directory of the command, for
+                programs that read files next to their executable. Defaults to
+                the app's working directory.
 
         Raises:
             Exception: If the command execution results in any errors.
@@ -197,12 +220,14 @@ class CommandExecutor:
         print(f"[DEBUG] run_command() called with: {cmd_str}")
 
         # Log the execution start
+        if cwd is not None:
+            self.logger.log(f"Working directory: {cwd}", 1)
         self.logger.log(
             f"Running command:\n{cmd_str}\nWaiting for command to finish...", 1
         )
-        print(f"[DEBUG] About to spawn subprocess with Popen...")
-
         start_time = time.time()
+        if task is not None:
+            self.progress.file_started(*task)
 
         # Execute the command with real-time output capture
         try:
@@ -217,14 +242,15 @@ class CommandExecutor:
                 universal_newlines=True,
                 cwd=cwd,
             )
-            child_pid = process.pid
-            print(f"[DEBUG] Subprocess spawned successfully with PID: {child_pid}")
-            self.logger.log(f"Process spawned with PID: {child_pid}")
-
-        except Exception as e:
-            print(f"[DEBUG] Failed to spawn subprocess: {e}")
+        except OSError as e:
+            # e.g. the tool is not installed: record it, then fail as before
             self.logger.log(f"❌ Failed to spawn subprocess: {e}")
-            return False
+            if task is not None:
+                self.progress.file_finished(*task, ok=False, returncode=-1, output=[str(e)])
+                self._log_failure_context(task, -1)
+            raise
+        child_pid = process.pid
+        self.logger.log(f"Process spawned with PID: {child_pid}")
 
         # Record the PID to keep track of running processes associated with this workspace/workflow
         # User can close the Streamlit app and return to a running workflow later
@@ -233,9 +259,13 @@ class CommandExecutor:
 
         # Buffer for stderr - will only be written to minimal log if process fails
         stderr_buffer: list[str] = []
+        # Last lines of stdout, kept for the run progress of a failed file
+        stdout_tail: deque = deque(maxlen=OUTPUT_TAIL)
 
         # Real-time output capture (returns the threads so we can join them)
-        stdout_thread, stderr_thread = self._stream_output(process, stderr_buffer)
+        stdout_thread, stderr_thread = self._stream_output(
+            process, stderr_buffer, stdout_tail
+        )
 
         # Wait for process completion
         print(f"[DEBUG] Waiting for process to complete...")
@@ -260,23 +290,71 @@ class CommandExecutor:
             1,
         )
 
+        ok = process.returncode == 0
+        if task is not None:
+            self.progress.file_finished(
+                *task,
+                ok=ok,
+                returncode=process.returncode,
+                output=list(stdout_tail) + stderr_buffer,
+            )
+
         # Check for errors
-        if process.returncode != 0:
-            print(f"[DEBUG] Process exited with error code {process.returncode}")
+        if not ok:
             # Write buffered stderr to minimal log only on failure
             for line in stderr_buffer:
                 self.logger.log(f"STDERR: {line}", 0)
-            self.logger.log(
-                f"❌ ERROR: Command failed with exit code {process.returncode}: {command[0]}",
-                0,
-            )
+            self.logger.log(f"ERROR: Command failed with exit code {process.returncode}: {command[0]}", 0)
+            if task is not None:
+                self._log_failure_context(task, process.returncode)
             return False
 
         print(f"[DEBUG] Process completed successfully")
         return True
 
+    def _log_failure_context(self, task: tuple, returncode: int) -> None:
+        """Log which tool failed on which file, e.g. 'While running X on file 2 of 3 (a.mzML)'."""
+        if task[0] < 0:  # the step could not be recorded
+            return
+        state = read_progress(self.progress.workflow_dir)
+        try:
+            step = state["steps"][task[0]]
+        except (TypeError, KeyError, IndexError):
+            return
+        self.logger.log(f"ERROR: {failure_context(step, task[1])} (exit code {returncode})", 0)
+
+    @staticmethod
+    def _command_labels(input_output: dict, n_processes: int) -> list[str]:
+        """A name per command for the run progress: its input file, as a rule.
+
+        Taken from the first input-like key ("in", "in_...") whose list holds
+        one entry per command, else the first such list; a collected list of
+        files becomes "<n> files".
+        """
+        keys = list(input_output.keys())
+        candidates = [k for k in keys if k.lower().startswith("in")] + keys
+        key = next(
+            (k for k in candidates if len(input_output[k]) == n_processes),
+            candidates[0] if candidates else None,
+        )
+        labels = []
+        for i in range(n_processes):
+            if key is None:
+                labels.append("")
+                continue
+            values = input_output[key]
+            value = values[i] if len(values) > i else values[0]
+            if isinstance(value, list):
+                labels.append(Path(value[0]).name if len(value) == 1 else f"{len(value)} files")
+            else:
+                labels.append(Path(str(value)).name)
+        return labels
+
     def _stream_output(
-        self, process: subprocess.Popen, stderr_buffer: list[str]
+        self,
+        process: subprocess.Popen,
+        stderr_buffer: list[str],
+        stdout_tail: deque = None,
     ) -> tuple:
         """
         Streams stdout and stderr from a running process in real-time to the logger.
@@ -300,6 +378,8 @@ class CommandExecutor:
                     if line:
                         # Log subprocess output at level 1 (visible) instead of level 2 (detailed)
                         self.logger.log(line.rstrip(), 1)
+                        if stdout_tail is not None:
+                            stdout_tail.append(line.rstrip())
                     if process.poll() is not None:
                         break
             except Exception as e:
@@ -444,6 +524,9 @@ class CommandExecutor:
             command += [str(x) for x in value]
         elif isinstance(value, str) and "\n" in value:
             command += [entry for entry in value.split("\n") if entry != ""]
+        elif isinstance(value, bool):
+            # OpenMS reads a boolean as "true"/"false", not "True"
+            command += [str(value).lower()]
         else:
             command += [str(value)]
 
@@ -587,13 +670,22 @@ class CommandExecutor:
             if ini_path.exists():
                 command += ["-ini", str(ini_path)]
 
-        # Run command(s)
-        if len(commands) == 1:
-            return self.run_command(commands[0], cwd=cwd)
-        elif len(commands) > 1:
-            return self.run_multiple_commands(commands, cwd=cwd)
-        else:
+        if not commands:
             raise Exception("No commands to execute.")
+
+        # Record the call for the Run page: one entry per command (input file)
+        step = self.progress.start_step(
+            tool if params_key == tool else f"{tool} ({params_key})",
+            self._command_labels(input_output, len(commands)),
+            threads=threads_per_command,
+            parallel=parallel_commands,
+        )
+        try:
+            if len(commands) == 1:
+                return self.run_command(commands[0], task=(step, 0), cwd=cwd)
+            return self.run_multiple_commands(commands, step=step, cwd=cwd)
+        finally:
+            self.progress.end_step(step)
 
     def stop(self) -> None:
         """

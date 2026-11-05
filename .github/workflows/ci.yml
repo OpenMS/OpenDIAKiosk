@@ -8,6 +8,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
+        # The oldest Python the app supports. The full Docker images use 3.11
+        # (pyOpenMS 3.6 needs it), the desktop apps 3.11 too.
         python-version: ["3.11"]
     steps:
     - uses: actions/checkout@v4

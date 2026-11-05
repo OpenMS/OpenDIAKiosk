@@ -97,6 +97,7 @@ deploy:
     hosts:
     - opendia.webapps.openms.de
     - opendia.webapps.openms.org
+    storage: 200Gi
     worker_tier: high
   docker_compose: true
   desktop:
@@ -116,6 +117,7 @@ sync:
   - settings.json
   - default-parameters.json
   - presets.json
+  - parameter-names.json
   - README.md
   - content/*
   - src/python-tools/*
@@ -132,3 +134,4 @@ sync:
   - src/workflow/OpenSwathWorkflow.py
   - src/workflow/PyProphet.py
   - src/workflow/UniProtFastaManager.py
+  - conda-requirements.txt
