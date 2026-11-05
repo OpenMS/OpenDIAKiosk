@@ -52,8 +52,8 @@
         "workflows": {"topp-workflow": "src.Workflow:Workflow"}
     },
     "max_threads": {
-        "local": null,
-        "online": null
+        "local": "auto",
+        "online": "auto"
     },
     "data_import": {
         "enabled": true,
