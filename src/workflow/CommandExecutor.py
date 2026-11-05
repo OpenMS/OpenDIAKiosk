@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from .Logger import Logger
 from .ParameterManager import ParameterManager, bool_param_paths_from_param_xml_ini
-from .settings_io import load_settings, detect_cpu_quota
+from .settings_io import load_settings, detect_cpu_quota, resolve_thread_setting
 from .vendor_files import vendor_format
 from .progress import RunProgress, read_progress, failure_context, OUTPUT_TAIL
 from collections import deque
@@ -63,6 +63,10 @@ class CommandExecutor:
         remains the fallback for every deployment where no quota is readable:
         bare metal, docker-compose without a cpu limit, a dev box.
 
+        ``"auto"`` (the template default for both keys; ``null`` and ``-1``
+        mean the same) is every usable CPU but one, see
+        settings_io.default_thread_count(). A number pins the budget.
+
         The trade-off, deliberately taken: an operator can no longer
         under-subscribe a container that declares more CPU than it wants used.
         For a Guaranteed pod that is the right call, because the declaration
@@ -90,14 +94,13 @@ class CommandExecutor:
             if quota is not None:
                 value = quota
             else:
-                value = max_threads_config.get("online")
+                value = resolve_thread_setting(max_threads_config.get("online", "auto"))
         else:
-            default = max_threads_config.get("local")
+            default = resolve_thread_setting(max_threads_config.get("local", "auto"))
             params = self.parameter_manager.get_parameters_from_json()
             value = params.get("max_threads", default)
 
-        if value is None or value == -1:
-            value = self._available_cpu_count()
+        value = resolve_thread_setting(value)
 
         try:
             value = int(value)
@@ -110,18 +113,6 @@ class CommandExecutor:
 
         self._max_threads = max(1, value)
         return self._max_threads
-
-    @staticmethod
-    def _available_cpu_count() -> int:
-        """
-        Return the number of CPU cores available to this process. Prefers
-        ``sched_getaffinity`` so cpuset-pinned containers report their actual
-        allotment instead of the underlying host's full core count.
-        """
-        try:
-            return len(os.sched_getaffinity(0))
-        except AttributeError:
-            return os.cpu_count() or 1
 
     def run_multiple_commands(
         self, commands: list[str], step: int = None, cwd: str | None = None
