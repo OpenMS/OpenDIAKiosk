@@ -103,6 +103,15 @@ deploy:
   desktop:
   - windows
   online_deployment: false
+
+# Optional CI checks, all on by default. An app with few CI minutes turns off
+# what it does not need (and sets deploy.desktop: [] to skip desktop builds).
+# ci:
+#   kind_tests: false             # kind deployments behind nginx and Traefik
+#   apptainer: false              # Apptainer test and SIF
+#   example_workflow_tests: false # workflow-tests.yml (template example)
+#   openms_release: false         # PRs for new OpenMS releases
+
 sync:
   app_owned:
   # k8s/base and k8s/components are the template's; OpenDIAKiosk's own
@@ -135,3 +144,5 @@ sync:
   - src/workflow/PyProphet.py
   - src/workflow/UniProtFastaManager.py
   - conda-requirements.txt
+  - contributors.json
+  - dependency-licenses.json

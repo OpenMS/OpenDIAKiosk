@@ -425,6 +425,14 @@ class ParameterManager:
                 self.ini_errors[tool] = f"{tool} could not be started: {e}"
                 return False
             if completed.returncode == 0 and tmp_path.exists():
+                # Only a file that parses replaces the cached one: a tool that
+                # dies mid-write leaves truncated XML behind.
+                try:
+                    ET.parse(tmp_path)
+                except ET.ParseError:
+                    self.ini_errors[tool] = f"{tool} -write_ini wrote an unreadable file."
+                    logger.warning("Could not write %s: %s", ini_path, self.ini_errors[tool])
+                    return False
                 os.replace(tmp_path, ini_path)
                 return True
             output = "\n".join(

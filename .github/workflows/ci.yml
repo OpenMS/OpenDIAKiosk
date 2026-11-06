@@ -2,6 +2,10 @@ name: continuous-integration
 
 on: [push, pull_request]
 
+# Every job reads the repository only; a job that needs more says so itself.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
