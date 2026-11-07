@@ -281,6 +281,7 @@ RUN mkdir -p /workspaces-streamlit-template /mounted-data
 # note: specifying folder with slash as suffix and repeating the folder name seems important to preserve directory structure
 WORKDIR /app
 COPY assets/ /app/assets
+COPY static/ /app/static
 COPY content/ /app/content
 COPY docs/ /app/docs
 COPY example-data/ /app/example-data
@@ -296,6 +297,7 @@ COPY parameter-names.json /app/parameter-names.json
 COPY data /app/data
 # Set environment variable for Redeem pretrain models
 ENV REDEEM_PRETRAINED_MODELS_DIR=/app/data/pretrained_models
+COPY contributors.json /app/contributors.json
 
 # For streamlit configuration
 COPY .streamlit/ /app/.streamlit/
