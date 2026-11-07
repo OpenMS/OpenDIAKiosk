@@ -665,6 +665,10 @@ class CommandExecutor:
         if not commands:
             raise Exception("No commands to execute.")
 
+        # The parameters this call passes besides the -ini defaults, for the
+        # processing report.
+        saved_params_for_report = dict(params.get(params_key) or {}) if include_saved_params else {}
+
         # Record the call for the Run page: one entry per command (input file),
         # with what the processing report says about it
         step = self.progress.start_step(
@@ -676,7 +680,7 @@ class CommandExecutor:
                 "kind": "topp",
                 "program": tool,
                 "version": self.parameter_manager.tool_version(tool),
-                "params": report_params({**merged_params, **custom_params}),
+                "params": report_params({**saved_params_for_report, **custom_params}),
                 "io": command_io(input_output, len(commands)),
             },
         )
