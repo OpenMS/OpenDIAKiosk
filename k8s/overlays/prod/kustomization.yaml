@@ -6,6 +6,10 @@ resources:
 
 components:
   - ../../components/memory-tier-high
+  # Workspaces on S3 object storage (JuiceFS, k8s/storage-s3/) instead of
+  # the Manila share. The size patch below still targets the Manila name;
+  # the component renames the claim after it applies.
+  - ../../components/storage-s3
 
 namePrefix: opendiakiosk-
 
@@ -41,14 +45,14 @@ patches:
       - op: replace
         path: /spec/routes/1/services/0/name
         value: opendiakiosk-sync
-  # The workspace share (deploy.k8s.storage in app.yaml).
+  # The workspace quota on S3 (deploy.k8s.storage in app.yaml).
   - target:
       kind: PersistentVolumeClaim
       name: workspaces-manila-pvc
     patch: |
       - op: replace
         path: /spec/resources/requests/storage
-        value: 200Gi
+        value: 20T
   - target:
       kind: Deployment
       name: streamlit
