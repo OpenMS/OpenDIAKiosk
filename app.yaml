@@ -97,7 +97,6 @@ deploy:
     hosts:
     - opendia.webapps.openms.de
     - opendia.webapps.openms.org
-    storage: 200Gi
     worker_tier: high
   docker_compose: true
   desktop:
