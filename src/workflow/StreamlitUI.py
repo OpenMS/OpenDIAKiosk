@@ -4098,7 +4098,7 @@ Started: {status.get("started_at", "N/A")}""")
             [
                 {
                     "Folder": folder_of(rel),
-                    "File": str(rel.relative_to(folder_of(rel))),
+                    "File": rel.relative_to(folder_of(rel)).as_posix(),
                     "Size": human_size(Path(results_dir, rel).stat().st_size),
                     "Modified": datetime.fromtimestamp(
                         Path(results_dir, rel).stat().st_mtime
@@ -4130,7 +4130,7 @@ Started: {status.get("started_at", "N/A")}""")
             selected = st.selectbox(
                 "File",
                 files,
-                format_func=str,
+                format_func=lambda rel: rel.as_posix(),
                 key=f"{key_prefix}-file",
                 label_visibility="collapsed",
             )
