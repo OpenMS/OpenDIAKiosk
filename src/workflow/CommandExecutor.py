@@ -379,9 +379,6 @@ class CommandExecutor:
         Args:
             process: The subprocess.Popen object to stream from
             stderr_buffer: A list to accumulate stderr lines for conditional logging
-            
-        Returns:
-            Tuple of (stdout_thread, stderr_thread) for joining later
         """
 
         def read_stdout():
@@ -418,8 +415,6 @@ class CommandExecutor:
 
         stdout_thread.start()
         stderr_thread.start()
-        
-        return stdout_thread, stderr_thread
 
         # Wait for both threads to complete
         stdout_thread.join()
