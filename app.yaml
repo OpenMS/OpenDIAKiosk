@@ -115,7 +115,6 @@ sync:
   app_owned:
   # k8s/base and k8s/components are the template's; OpenDIAKiosk's own
   # values are patches in k8s/overlays/prod.
-  - k8s/argocd/*
   - .github/workflows/build-and-test.yml
   - .github/kind-config.yaml
   - docker-compose.yml
