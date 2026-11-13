@@ -270,8 +270,10 @@ class CommandExecutor:
         stderr_thread.join(timeout=5)
         print(f"[DEBUG] Output threads finished")
 
-        # Cleanup PID file
-        pid_file_path.unlink()
+        # Cleanup PID file. Between the tool's exit and wait() it is a zombie,
+        # and the Run page's status check (pid_files.reap) removes the file of
+        # a zombie, so it may already be gone.
+        pid_file_path.unlink(missing_ok=True)
 
         end_time = time.time()
         execution_time = end_time - start_time
