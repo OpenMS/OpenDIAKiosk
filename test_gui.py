@@ -92,7 +92,11 @@ def test_view_raw_ms_data(launch, example):
     launch.run(timeout=30)  # Increased timeout from 10 to 30 seconds
 
     ## Load Example file, based on implementation of fileupload.load_example_mzML_files() ###
-    mzML_dir = Path(launch.session_state.workspace, "mzML-files")
+    # The directory the page lists (OpenDIAKiosk keeps mzML with the workflow)
+    from src.common.workspace_files import workspace_mzml_dir
+
+    mzML_dir = workspace_mzml_dir(Path(launch.session_state.workspace))
+    mzML_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy files from example-data/mzML to workspace mzML directory, add to selected files
     for f in Path("example-data", "mzML").glob("*.mzML"):
