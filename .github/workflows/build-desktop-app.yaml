@@ -183,9 +183,9 @@ jobs:
         electron/scripts/stage-openms.sh "$OPENMS_VERSION" electron/payload $TOPP_TOOLS
 
     - name: Stage the .NET runtime for Thermo .raw files
-      # macOS and Linux: FileConverter's built-in .raw reader needs .NET 8 or
-      # newer (DOTNET_ROOT, set by electron/src/payload.js). Windows needs none.
-      if: runner.os != 'Windows'
+      # FileConverter's built-in .raw reader, which convert_to_mzml names on
+      # every platform, needs .NET 8 or newer (DOTNET_ROOT, set by
+      # electron/src/payload.js).
       run: electron/scripts/stage-dotnet.sh electron/payload
 
     - name: Stage Python with the app's requirements
